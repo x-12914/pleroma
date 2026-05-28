@@ -1,17 +1,35 @@
 from datetime import datetime, timedelta
 from typing import Optional
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from app.core.config import settings
 
-# Setup password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    """Hash a password with bcrypt.
+
+    bcrypt truncates inputs over 72 bytes silently — reject upfront so the
+    caller learns instead of losing entropy.
+    """
+    encoded = password.encode("utf-8")
+    if len(encoded) > 72:
+        raise ValueError("Password must be 72 bytes or fewer when UTF-8 encoded.")
+    return bcrypt.hashpw(encoded, bcrypt.gensalt()).decode("utf-8")
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    """Verify a password against a stored bcrypt hash.
+
+    Accepts the standard $2b$... format that passlib's CryptContext emitted,
+    so existing users' hashes still validate without migration.
+    """
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"),
+            hashed_password.encode("utf-8"),
+        )
+    except (ValueError, TypeError):
+        return False
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
