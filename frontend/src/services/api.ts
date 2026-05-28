@@ -1,7 +1,12 @@
 import axios from 'axios';
 
-// 1. Setup Base URL with the Vite env fallback
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://aicds-backend-main.onrender.com/api/v1';
+// 1. Setup Base URL with the Vite env fallback.
+// In production the frontend is served from the same origin as the API
+// (https://pleroma-aicds.duckdns.org), so the default points there.
+// For local development, set VITE_API_BASE_URL=http://localhost:8000/api/v1
+// in frontend/.env.local.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://pleroma-aicds.duckdns.org/api/v1';
+const API_ROOT = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -63,7 +68,8 @@ export const analysisService = {
 };
 
 // 5. System Health (Used for the Online/Offline indicator)
-export const checkSystemHealth = () => axios.get('https://aicds-backend-main.onrender.com/');
+// Derived from API_BASE_URL so there's one source of truth for the API host.
+export const checkSystemHealth = () => axios.get(`${API_ROOT}/`);
 
 // 6. Authentication Endpoints
 export const authService = {
