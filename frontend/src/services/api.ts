@@ -71,7 +71,14 @@ export const analysisService = {
 // Derived from API_BASE_URL so there's one source of truth for the API host.
 export const checkSystemHealth = () => axios.get(`${API_ROOT}/`);
 
-// 6. Authentication Endpoints
+// 6. Sensor Management Endpoints
+export const sensorService = {
+  list: () => api.get('/sensors/'),
+  create: (name: string) => api.post('/sensors/', { name }),
+  remove: (id: number) => api.delete(`/sensors/${id}`),
+};
+
+// 7. Authentication Endpoints
 export const authService = {
   login: (email: string, password: string) => {
     // FastAPI OAuth2 requires Form Data (URLSearchParams)

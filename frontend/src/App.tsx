@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar';
 import PrivateRoute from './components/PrivateRoute';
 import Dashboard from './pages/Dashboard';
 import UrlScan from './pages/UrlScan';
+import Sensors from './pages/Sensors';
 import Logs from './pages/Logs';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -39,6 +40,7 @@ function App() {
                         <Routes>
                           <Route path="/" element={<Dashboard />} />
                           <Route path="/url-scan" element={<UrlScan />} />
+                          <Route path="/sensors" element={<Sensors />} />
                           <Route path="/logs" element={<Logs />} />
                         </Routes>
                       </main>

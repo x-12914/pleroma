@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, AlertCircle, FileText, Globe, Menu, X, Loader2 } from 'lucide-react';
+import { LayoutDashboard, AlertCircle, FileText, Globe, Menu, X, Loader2, Radio } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { analysisService } from '../services/api';
@@ -14,6 +14,7 @@ export default function Sidebar() {
   const menuItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/url-scan', icon: Globe, label: 'URL Scan' },
+    { path: '/sensors', icon: Radio, label: 'Sensors' },
     { path: '/logs', icon: FileText, label: 'Logs' },
   ];
 
