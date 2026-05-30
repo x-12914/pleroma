@@ -88,6 +88,10 @@ class NetworkEngine:
             self.scaler = joblib.load(self.scaler_path)
             self.encoder = joblib.load(self.encoder_path)
             self.feature_names = list(joblib.load(self.features_path))
+            # The model was pickled with verbose=1 from training; silence the
+            # per-call "[Parallel(n_jobs=2)]: Done N tasks" spam at inference.
+            if hasattr(self.model, "verbose"):
+                self.model.verbose = 0
             self.is_mock = False
             print(
                 f"✅ NetworkEngine: CIC-IDS2018 RF loaded "
@@ -195,7 +199,9 @@ In ONE technical sentence, describe what this flow plausibly represents and whet
             "Content-Type": "application/json",
         }
         payload = {
-            "model": "llama-3.1-8b-instant",
+            # Match the model the URL scanner uses (intelligence/engine.py)
+            # — llama-3.1-8b-instant may be deprecated on Groq.
+            "model": "llama-3.3-70b-versatile",
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 150,
         }
@@ -206,9 +212,27 @@ In ONE technical sentence, describe what this flow plausibly represents and whet
                     settings.GROQ_API_URL,
                     headers=headers,
                     json=payload,
-                    timeout=10.0,
+                    timeout=15.0,
                 )
-                return res.json()["choices"][0]["message"]["content"].strip()
             except Exception as exc:
-                print(f"⚠️ AI interpretation failed: {exc}")
+                print(f"⚠️ AI interpretation request failed: {exc}")
                 return f"Pattern matched {raw_class} signature."
+
+        # Better diagnostics: distinguish auth, parse, and unknown failures
+        # so the journal tells us exactly what's wrong instead of swallowing
+        # everything into a single generic "failed".
+        if res.status_code != 200:
+            print(
+                f"⚠️ AI interpretation HTTP {res.status_code}: "
+                f"{res.text[:200]}"
+            )
+            return f"Pattern matched {raw_class} signature."
+
+        try:
+            return res.json()["choices"][0]["message"]["content"].strip()
+        except (KeyError, ValueError, TypeError) as exc:
+            print(
+                f"⚠️ AI interpretation parse error: {exc} | "
+                f"body: {res.text[:200]}"
+            )
+            return f"Pattern matched {raw_class} signature."

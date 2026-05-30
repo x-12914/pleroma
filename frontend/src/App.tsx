@@ -4,7 +4,6 @@ import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import PrivateRoute from './components/PrivateRoute';
 import Dashboard from './pages/Dashboard';
-import ThreatDetection from './pages/ThreatDetection';
 import UrlScan from './pages/UrlScan';
 import Logs from './pages/Logs';
 import Login from './pages/Login';
@@ -39,7 +38,6 @@ function App() {
                       <main className="flex-1 overflow-auto p-4 md:p-8">
                         <Routes>
                           <Route path="/" element={<Dashboard />} />
-                          <Route path="/detect" element={<ThreatDetection />} />
                           <Route path="/url-scan" element={<UrlScan />} />
                           <Route path="/logs" element={<Logs />} />
                         </Routes>

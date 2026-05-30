@@ -13,7 +13,6 @@ export default function Sidebar() {
 
   const menuItems = [
     { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/detect', icon: AlertCircle, label: 'Threat Detection' },
     { path: '/url-scan', icon: Globe, label: 'URL Scan' },
     { path: '/logs', icon: FileText, label: 'Logs' },
   ];
