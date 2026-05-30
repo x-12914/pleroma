@@ -3,3 +3,4 @@ data/raw/**/*.csv
 data/raw/**/*.zip
 data/clean/**/*.parquet
 data/clean/**/*.csv
+artifacts/
