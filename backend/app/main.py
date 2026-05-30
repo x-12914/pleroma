@@ -7,7 +7,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from app.db.database import init_db
-from app.api.routes import auth, logs, analysis
+from app.api.routes import auth, logs, analysis, sensors, ingest
 from app.core.rate_limiter import limiter
 from app.core.config import settings
 from app.utils.dependencies import get_current_user
@@ -38,6 +38,8 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(logs.router, prefix="/api/v1")
 app.include_router(analysis.router, prefix="/api/v1")
+app.include_router(sensors.router, prefix="/api/v1")
+app.include_router(ingest.router, prefix="/api/v1")
 
 
 @app.api_route("/", methods=["GET", "HEAD"])

@@ -1,10 +1,13 @@
-from fastapi import Depends, HTTPException, status
+import hashlib
+from typing import Optional
+
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.database import get_db
-from app.db.models import User
+from app.db.models import Sensor, User
 from app.schemas.schemas import TokenData
 
 # If you are using /api/v1 prefix, it MUST be included here
@@ -43,3 +46,26 @@ def get_current_admin(current_user: User = Depends(get_current_user)):
             detail="Operation not permitted. Admin privileges required."
         )
     return current_user
+
+
+# 3. Sensor authentication via X-Sensor-Key header.
+# Sensors don't have user sessions — they're long-running agents with a
+# rotated-by-recreation API key. SHA-256 (not bcrypt) for the hash so the
+# lookup is fast (could happen 100+ times/sec under load) and deterministic.
+def get_current_sensor(
+    x_sensor_key: Optional[str] = Header(None, alias="X-Sensor-Key"),
+    db: Session = Depends(get_db),
+) -> Sensor:
+    if not x_sensor_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="X-Sensor-Key header required",
+        )
+    key_hash = hashlib.sha256(x_sensor_key.encode("utf-8")).hexdigest()
+    sensor = db.query(Sensor).filter(Sensor.api_key_hash == key_hash).first()
+    if sensor is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid sensor key",
+        )
+    return sensor
