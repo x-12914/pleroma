@@ -63,14 +63,17 @@ def clean_chunk(chunk: pd.DataFrame) -> pd.DataFrame:
     # Flow Byts/s and Flow Pkts/s when Flow Duration == 0.
     chunk = chunk.replace([np.inf, -np.inf], np.nan).dropna()
 
-    # Downcast to halve memory (and disk via parquet).
+    # Force every non-Label column to float32 unconditionally. This is
+    # less efficient than preserving int dtypes (~50 MB extra on disk for
+    # the int columns) but guarantees identical schema across every chunk
+    # and every input file — without it, pandas auto-types the same
+    # column as int32 in one chunk and float32 in another based on whether
+    # that chunk happened to contain fractional values, which makes the
+    # parquet writer reject schema-mismatched appends.
     for col in chunk.columns:
         if col == "Label":
             continue
-        if chunk[col].dtype == "float64":
-            chunk[col] = chunk[col].astype("float32")
-        elif chunk[col].dtype == "int64":
-            chunk[col] = chunk[col].astype("int32")
+        chunk[col] = chunk[col].astype("float32")
 
     return chunk
 
