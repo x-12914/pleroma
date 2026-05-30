@@ -90,21 +90,26 @@ class AnalysisService:
                 db.commit()
 
             try:
-                # 1. Run ML Prediction
+                # 1. Run ML Prediction (now returns 3-tuple under CIC schema)
                 loop = asyncio.get_running_loop()
-                ml_verdict, ml_confidence = await loop.run_in_executor(None, network_engine.predict, record)
-                
-                # 2. NEW: Call the AI Interpreter
-                ai_reason = await network_engine.get_ai_interpretation(record, ml_verdict, ml_confidence)
-                
+                ml_verdict, ml_confidence, ml_raw_class = await loop.run_in_executor(
+                    None, network_engine.predict, record
+                )
+
+                # 2. LLM interpretation — sees the raw CIC class for context
+                ai_reason = await network_engine.get_ai_interpretation(
+                    record, ml_verdict, ml_confidence, ml_raw_class
+                )
+
                 report = {
                     "model_verdict": ml_verdict,
                     "confidence": ml_confidence,
-                    "reason": ai_reason, # <--- This fills the box!
+                    "raw_class": ml_raw_class,
+                    "reason": ai_reason,
                     "raw_input": record,
                 }
-                
-                # 3. Log to Neon
+
+                # 3. Log to DB
                 LogService.create_log(db, user_id, "NETWORK_TRAFFIC", "Internal Network", ml_verdict, ml_confidence, report)
                 
                 # 4. Finalize Task
