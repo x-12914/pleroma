@@ -1,0 +1,5 @@
+# Large dataset files — kept out of git, downloaded per host
+data/raw/**/*.csv
+data/raw/**/*.zip
+data/clean/**/*.parquet
+data/clean/**/*.csv
