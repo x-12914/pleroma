@@ -459,20 +459,30 @@ def main() -> int:
                 pending and now - last_flush >= batch_interval
             )
             if should_flush:
+                # CAP the per-POST size at batch_size. Without this, when
+                # hundreds of flows expire simultaneously (e.g. after a
+                # burst like a curl flood), drain() dumps them all into
+                # pending and we POST the whole thing in one request —
+                # the server times out trying to predict() that many
+                # sequentially. Slicing keeps each POST bounded.
+                to_ship = pending[:batch_size]
                 result = ship_batch(
                     cfg["PLEROMA_SERVER"], cfg["PLEROMA_SENSOR_KEY"],
-                    pending, verify_tls,
+                    to_ship, verify_tls,
                 )
                 if result is not None:
                     p, l = result
                     sent_total += p
                     logged_total += l
+                    pending = pending[len(to_ship):]
+                    backlog = len(pending)
+                    backlog_note = f"  backlog={backlog}" if backlog else ""
                     print(
                         f"sensor: shipped batch={p} logged={l}  "
-                        f"total_shipped={sent_total} total_logged={logged_total}",
+                        f"total_shipped={sent_total} total_logged={logged_total}"
+                        f"{backlog_note}",
                         flush=True,
                     )
-                    pending = []
                     last_flush = now
                 else:
                     if len(pending) > batch_size * 10:
