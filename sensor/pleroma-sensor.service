@@ -1,0 +1,28 @@
+[Unit]
+Description=Pleroma sensor agent — captures CIC flows and ships to backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Run as root because raw packet capture requires CAP_NET_RAW + CAP_NET_ADMIN.
+# Granting capabilities to the Python interpreter is more locked-down but
+# fragile across distro/venv layouts. For a portfolio sensor this is fine.
+User=root
+Group=root
+EnvironmentFile=-/etc/pleroma-sensor/config
+ExecStart=/usr/local/bin/pleroma-sensor
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Hardening — moderate, since we already need root for packet capture.
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateTmp=false
+
+[Install]
+WantedBy=multi-user.target

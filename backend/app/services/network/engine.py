@@ -44,6 +44,15 @@ VERDICT_MAPPING: dict[str, str] = {
 CONFIDENCE_THRESHOLD = 0.60
 
 
+def _normalize_key(k: str) -> str:
+    """Collapse `Dst Port`, `Flow Byts/s`, `dst_port` etc. to a single
+    canonical form so the engine accepts either Title-Case (manual /
+    test payloads) or snake_case (cicflowmeter native output)."""
+    return (
+        k.strip().lower().replace(" ", "_").replace("/", "_").replace("-", "_")
+    )
+
+
 class NetworkEngine:
     def __init__(self) -> None:
         self.base_dir = Path(__file__).resolve().parent
@@ -92,6 +101,12 @@ class NetworkEngine:
             # per-call "[Parallel(n_jobs=2)]: Done N tasks" spam at inference.
             if hasattr(self.model, "verbose"):
                 self.model.verbose = 0
+            # Build a normalized-key → canonical-name map so the sensor can
+            # send cicflowmeter's native snake_case ("dst_port") and the
+            # manual curl/test path can still send Title Case ("Dst Port").
+            self._normalized_features = {
+                _normalize_key(name): name for name in self.feature_names
+            }
             self.is_mock = False
             print(
                 f"✅ NetworkEngine: CIC-IDS2018 RF loaded "
@@ -105,19 +120,24 @@ class NetworkEngine:
     def preprocess(self, record: dict) -> np.ndarray:
         """Build a feature row in the model's expected column order.
 
-        Missing CIC features default to 0.0 — this is deliberate. The
-        manual frontend form submits NSL-KDD-shaped fields that don't
-        match CIC names; predictions on those inputs will be poor.
-        Real-quality predictions arrive in Phase 4 when the sensor
-        ships CICFlowMeter-extracted feature vectors directly.
+        Accepts either Title-Case keys ("Dst Port") or snake_case keys
+        ("dst_port"); the latter is what cicflowmeter emits natively.
+        Unknown keys are silently ignored. Missing features default to
+        0.0 — a known weak spot when the input is only a partial dict
+        (e.g. a hand-crafted curl payload), fine when the sensor sends
+        the full 78-column row.
         """
         full_vector: dict[str, float] = {name: 0.0 for name in self.feature_names}
         for key, val in record.items():
-            if key in full_vector:
-                try:
-                    full_vector[key] = float(val)
-                except (TypeError, ValueError):
-                    full_vector[key] = 0.0
+            target = key if key in full_vector else self._normalized_features.get(
+                _normalize_key(key)
+            )
+            if target is None:
+                continue
+            try:
+                full_vector[target] = float(val)
+            except (TypeError, ValueError):
+                full_vector[target] = 0.0
 
         # DataFrame ensures the scaler sees columns in the exact training
         # order regardless of dict iteration order.
