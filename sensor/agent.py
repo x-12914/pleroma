@@ -18,6 +18,7 @@ Expiration policy:
 """
 from __future__ import annotations
 
+import csv
 import os
 import signal
 import statistics
@@ -390,6 +391,52 @@ class FlowTracker:
 
 # ---------- Ship ----------
 
+# ---------- Dump mode (Phase 5 — capture labeled flows for retraining) ----------
+
+class FeatureDumper:
+    """Optionally tee every flow's features to a CSV with a Label column.
+
+    Activated via env vars (PLEROMA_DUMP_CSV + PLEROMA_DUMP_LABEL) so it
+    works under both the systemd unit (set in EnvironmentFile) and ad-hoc
+    `sudo env … python agent.py` invocations during capture sessions.
+
+    File is line-buffered so each completed flow is on disk immediately —
+    safe to Ctrl+C the agent without losing the buffer.
+    """
+
+    def __init__(self, path: str | None, label: str):
+        self.path = path
+        self.label = label
+        self._file = None
+        self._writer: csv.writer | None = None
+        self._header_written = False
+
+    def open(self) -> None:
+        if not self.path:
+            return
+        self._file = open(self.path, "w", newline="", buffering=1, encoding="utf-8")
+        self._writer = csv.writer(self._file)
+        print(
+            f"sensor: dump mode → {self.path} (label='{self.label}')",
+            flush=True,
+        )
+
+    def write(self, features: dict) -> None:
+        if self._writer is None:
+            return
+        if not self._header_written:
+            cols = list(features.keys()) + ["Label"]
+            self._writer.writerow(cols)
+            self._header_written = True
+        self._writer.writerow(list(features.values()) + [self.label])
+
+    def close(self) -> None:
+        if self._file:
+            self._file.close()
+            self._file = None
+            self._writer = None
+
+
 def ship_batch(server, key, flows_list, verify_tls):
     url = f"{server.rstrip('/')}/api/v1/ingest/flow"
     headers = {"X-Sensor-Key": key, "Content-Type": "application/json"}
@@ -432,8 +479,16 @@ def main() -> int:
 
     stop = threading.Event()
 
+    # Phase 5: optional flow-dump-to-CSV for retraining capture sessions.
+    dumper = FeatureDumper(
+        path=os.environ.get("PLEROMA_DUMP_CSV"),
+        label=os.environ.get("PLEROMA_DUMP_LABEL", "unknown"),
+    )
+    dumper.open()
+
     def _shutdown(_sig, _frm):
         print("sensor: shutting down", flush=True)
+        dumper.close()
         stop.set()
 
     signal.signal(signal.SIGINT, _shutdown)
@@ -453,7 +508,9 @@ def main() -> int:
                 last_gc = now
 
             for flow in tracker.drain():
-                pending.append(flow.to_features())
+                features = flow.to_features()
+                pending.append(features)
+                dumper.write(features)
 
             should_flush = len(pending) >= batch_size or (
                 pending and now - last_flush >= batch_interval
@@ -493,13 +550,16 @@ def main() -> int:
 
         # Final flush on shutdown
         for flow in tracker.force_flush_all():
-            pending.append(flow.to_features())
+            features = flow.to_features()
+            pending.append(features)
+            dumper.write(features)
         if pending:
             print(f"sensor: final flush of {len(pending)} flows", flush=True)
             ship_batch(
                 cfg["PLEROMA_SERVER"], cfg["PLEROMA_SENSOR_KEY"],
                 pending, verify_tls,
             )
+        dumper.close()
 
     bg = threading.Thread(target=background, daemon=True)
     bg.start()
