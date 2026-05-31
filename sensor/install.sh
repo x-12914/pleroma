@@ -45,11 +45,14 @@ else
 fi
 
 # ---- 2. Venv + Python deps ----
-echo "[2/6] creating venv at $INSTALL_DIR/.venv and installing cicflowmeter + requests…"
+# We dropped cicflowmeter — both v0.3 and v0.4 are broken on Python 3.14
+# (sniff packets fine, never flush CSV). The agent now implements the
+# 78 CIC features directly on top of Scapy, so we only need scapy + requests.
+echo "[2/6] creating venv at $INSTALL_DIR/.venv and installing scapy + requests…"
 mkdir -p "$INSTALL_DIR"
 python3 -m venv "$INSTALL_DIR/.venv"
 "$INSTALL_DIR/.venv/bin/pip" install --quiet --upgrade pip
-"$INSTALL_DIR/.venv/bin/pip" install --quiet cicflowmeter requests
+"$INSTALL_DIR/.venv/bin/pip" install --quiet scapy requests
 
 # ---- 3. Copy agent ----
 echo "[3/6] installing agent to $INSTALL_DIR/agent.py"
