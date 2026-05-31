@@ -97,26 +97,47 @@ def load_config() -> dict[str, str]:
 
 # ---------- cicflowmeter subprocess ----------
 
+def _find_cicflowmeter() -> str:
+    """Locate the cicflowmeter CLI.
+
+    The agent is normally launched via the venv's Python interpreter
+    (sys.executable points to /opt/pleroma-sensor/.venv/bin/python).
+    The cicflowmeter CLI installed by pip lives in the same bin dir,
+    so check there first — that path is NOT on the subprocess's PATH
+    by default since the shim doesn't activate the venv. Fall back to
+    a PATH lookup for cases where someone runs the agent with system
+    python and a globally-installed cicflowmeter.
+    """
+    venv_bin = Path(sys.executable).parent
+    candidate = venv_bin / "cicflowmeter"
+    if candidate.exists() and os.access(candidate, os.X_OK):
+        return str(candidate)
+    on_path = shutil.which("cicflowmeter")
+    if on_path:
+        return on_path
+    print(
+        "ERROR: 'cicflowmeter' not found next to "
+        f"{sys.executable} or on PATH. Install with: "
+        "pip install cicflowmeter",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
 def start_cicflowmeter(interface: str, output_csv: Path) -> subprocess.Popen:
     """Launch cicflowmeter as a subprocess writing rows to output_csv.
 
     cicflowmeter handles all the Scapy plumbing for live sniffing,
     flow grouping, and feature extraction. We just consume its CSV.
     """
-    if shutil.which("cicflowmeter") is None:
-        print(
-            "ERROR: 'cicflowmeter' CLI not found on PATH. "
-            "Install with: pip install cicflowmeter",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    cic_cmd = _find_cicflowmeter()
 
     # Wipe any stale CSV so we start clean.
     if output_csv.exists():
         output_csv.unlink()
 
     # cicflowmeter writes the header on first row. -i = interface, -c = csv file.
-    cmd = ["cicflowmeter", "-i", interface, "-c", str(output_csv)]
+    cmd = [cic_cmd, "-i", interface, "-c", str(output_csv)]
     print(f"sensor: starting {' '.join(cmd)}", flush=True)
     proc = subprocess.Popen(
         cmd,
