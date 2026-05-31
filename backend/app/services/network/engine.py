@@ -144,15 +144,78 @@ class NetworkEngine:
         df = pd.DataFrame([full_vector], columns=self.feature_names)
         return self.scaler.transform(df)
 
+    def _heuristic_override(self, features: dict) -> tuple[str, float, str] | None:
+        """Catch unambiguous attack shapes at the per-flow level.
+
+        The model was trained on features extracted by the original Java
+        CICFlowMeter; our Phase 4 sensor uses a Scapy reimplementation
+        whose feature values don't perfectly match (different timestamp
+        precision, subflow definition, header-length calculation, etc.).
+        Some attack flows that should be obvious end up classified as
+        Benign because they're out-of-distribution relative to training.
+
+        Two rules below catch the patterns that don't need the model at
+        all — they're inherently suspicious regardless of any classifier.
+        Returns (verdict, confidence, raw_class) on match, else None.
+        """
+        try:
+            tot_fwd = float(features.get("Tot Fwd Pkts", 0))
+            tot_bwd = float(features.get("Tot Bwd Pkts", 0))
+            syn = float(features.get("SYN Flag Cnt", 0))
+            rst = float(features.get("RST Flag Cnt", 0))
+            fin = float(features.get("FIN Flag Cnt", 0))
+            flow_dur_us = float(features.get("Flow Duration", 0))
+            totlen_bwd = float(features.get("TotLen Bwd Pkts", 0))
+            dst_port = int(float(features.get("Dst Port", 0)))
+        except (ValueError, TypeError):
+            return None
+
+        # Rule 1 — single-SYN / port probe.
+        # Real connections complete a handshake and exchange data. A scan
+        # fires one SYN and either gets a RST (closed port) or silence.
+        # Flow ends very quickly with negligible payload.
+        if (
+            syn >= 1
+            and tot_fwd <= 3
+            and tot_bwd <= 3
+            and flow_dur_us < 500_000  # under 500 ms
+            and (totlen_bwd < 20 or rst >= 1)
+        ):
+            return "Suspicious", 0.85, "ScanProbe-heuristic"
+
+        # Rule 2 — Slowloris / SlowHTTPTest signature.
+        # Long-lived flow against a web port where the client keeps
+        # dripping data but the server's response is tiny — the slow
+        # header / slow body attack family.
+        if (
+            dst_port in (80, 443, 8080, 8443)
+            and flow_dur_us > 5_000_000  # over 5 s
+            and tot_fwd > 3
+            and totlen_bwd < 2000
+            and fin == 0
+        ):
+            return "Suspicious", 0.80, "SlowHeaders-heuristic"
+
+        return None
+
     def predict(self, record: dict) -> tuple[str, float, str]:
         """Run inference. Returns (verdict, confidence, raw_class).
 
         verdict       — "Normal" | "Suspicious" | "Malicious" | "Error"
         confidence    — top-class probability in [0, 1]
-        raw_class     — the underlying CIC label (e.g. "DoS attacks-Hulk")
+        raw_class     — the underlying CIC label (e.g. "DoS attacks-Hulk"),
+                        or "*-heuristic" if a rule override fired
         """
         if self.is_mock:
             return "Error", 0.0, "MOCK_MODE"
+
+        # Heuristic overrides fire BEFORE the model so an obvious scan
+        # probe doesn't get whitewashed as Benign when the model fails
+        # to recognize it. Override is also cheaper than predict() so
+        # there's no perf cost.
+        override = self._heuristic_override(record)
+        if override is not None:
+            return override
 
         try:
             X = self.preprocess(record)
