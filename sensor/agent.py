@@ -488,7 +488,9 @@ def main() -> int:
 
     def _shutdown(_sig, _frm):
         print("sensor: shutting down", flush=True)
-        dumper.close()
+        # Don't close the dumper here — the background thread still needs
+        # it for the final-flush loop. Closing happens at the end of
+        # background() after the force-flushed in-flight flows are written.
         stop.set()
 
     signal.signal(signal.SIGINT, _shutdown)
