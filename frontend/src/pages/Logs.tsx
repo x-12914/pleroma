@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import { analysisService } from '../services/api';
 import { SimpleCard } from '../components/Card';
 import { LoadingSpinner } from '../components/LoadingState';
+import { getThreatInfo } from '../utils/threats';
 
 export default function Logs() {
   const [logs, setLogs] = useState<any[]>([]);
@@ -134,14 +135,17 @@ export default function Logs() {
               <tr className="bg-white/5 text-[10px] uppercase tracking-widest font-black text-gray-400">
                 <th className="p-4">Timestamp</th>
                 <th className="p-4">Type</th>
-                <th className="p-4">Target</th>
+                <th className="p-4">Threat</th>
+                <th className="p-4">Source</th>
                 <th className="p-4">Verdict</th>
                 <th className="p-4">Confidence</th>
                 <th className="p-4">Action</th>
               </tr>
             </thead>
             <tbody className="text-sm">
-              {filteredLogs.map((log: any) => (
+              {filteredLogs.map((log: any) => {
+                const threat = getThreatInfo(log.report_data?.raw_class);
+                return (
                 <tr
                   key={log.id}
                   className="border-t border-white/5 hover:bg-white/[0.02] transition-colors cursor-pointer"
@@ -159,6 +163,25 @@ export default function Logs() {
                     >
                       {log.category.replace('_', ' ')}
                     </span>
+                  </td>
+                  <td className="p-4 font-medium">
+                    {threat ? (
+                      <span
+                        className={`${
+                          threat.severity === 'malicious'
+                            ? 'text-cyber-red'
+                            : threat.severity === 'suspicious'
+                            ? 'text-cyber-yellow'
+                            : 'text-cyber-green'
+                        }`}
+                      >
+                        {threat.name}
+                      </span>
+                    ) : log.category === 'URL_SCAN' ? (
+                      <span className="text-cyber-blue">URL Inspection</span>
+                    ) : (
+                      <span className="text-gray-500 italic">—</span>
+                    )}
                   </td>
                   <td className="p-4 font-medium text-gray-300 truncate max-w-[250px]">
                     {log.target}
@@ -207,7 +230,7 @@ export default function Logs() {
                     </button>
                   </td>
                 </tr>
-              ))}
+              );})}
             </tbody>
           </table>
         )}
@@ -248,6 +271,37 @@ export default function Logs() {
 
             {/* Modal Content - Scrollable */}
             <div className="p-8 overflow-y-auto space-y-8 flex-1">
+              {/* What Happened — friendly threat description */}
+              {(() => {
+                const threat = getThreatInfo(selectedLog.report_data?.raw_class);
+                if (!threat) return null;
+                const severityColor =
+                  threat.severity === 'malicious'
+                    ? 'text-cyber-red border-cyber-red/30 bg-cyber-red/5'
+                    : threat.severity === 'suspicious'
+                    ? 'text-cyber-yellow border-cyber-yellow/30 bg-cyber-yellow/5'
+                    : 'text-cyber-green border-cyber-green/30 bg-cyber-green/5';
+                return (
+                  <div className={`p-6 rounded-2xl border ${severityColor}`}>
+                    <div className="text-[10px] font-bold uppercase tracking-widest text-gray-400 mb-2">
+                      What Happened
+                    </div>
+                    <h3 className="text-2xl font-black tracking-tighter mb-3">
+                      {threat.name}
+                    </h3>
+                    <p className="text-sm leading-relaxed text-gray-300">
+                      {threat.description}
+                    </p>
+                    {selectedLog.report_data?.raw_class && (
+                      <p className="mt-3 text-[10px] font-mono text-gray-500">
+                        Classifier label:{' '}
+                        <span className="text-gray-400">{selectedLog.report_data.raw_class}</span>
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* Summary Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="p-4 bg-white/5 rounded-2xl border border-white/5">
