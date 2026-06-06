@@ -1,38 +1,42 @@
 import { useState, useEffect } from 'react';
-import { Activity, AlertTriangle, LogOut } from 'lucide-react';
+import { LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { checkSystemHealth } from '../services/api';
 
+/* ---------------------------------------------------------------
+   Navbar — minimal. Drops "AICDS / Security Operations Center"
+   branding, the bouncing alert icon, both pulsing status pills,
+   and the hardcoded "3 Recent Alerts" string.
+
+   What's left: wordmark, online status pip, current time, user
+   email, logout. Nothing pulses.
+   --------------------------------------------------------------- */
+
 export default function Navbar() {
-  const [time, setTime] = useState(new Date().toLocaleTimeString());
-  const [isOnline, setIsOnline] = useState<boolean>(false);
+  const [time, setTime] = useState(formatTime(new Date()));
+  const [isOnline, setIsOnline] = useState<boolean | null>(null);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setTime(new Date().toLocaleTimeString());
-    }, 1000);
-    return () => clearInterval(timer);
+    const t = setInterval(() => setTime(formatTime(new Date())), 1000);
+    return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
-    const checkConnection = async () => {
+    let cancelled = false;
+    const probe = async () => {
       try {
-        const response = await checkSystemHealth();
-        if (response.status === 200) {
-          setIsOnline(true);
-        } else {
-          setIsOnline(false);
-        }
+        const r = await checkSystemHealth();
+        if (!cancelled) setIsOnline(r.status === 200);
       } catch {
-        setIsOnline(false);
+        if (!cancelled) setIsOnline(false);
       }
     };
-    checkConnection();
-    const interval = setInterval(checkConnection, 10000);
-    return () => clearInterval(interval);
+    probe();
+    const i = setInterval(probe, 12000);
+    return () => { cancelled = true; clearInterval(i); };
   }, []);
 
   const handleLogout = () => {
@@ -41,62 +45,82 @@ export default function Navbar() {
   };
 
   return (
-    <nav className="glass-card rounded-none border-b border-dark-700 sticky top-0 z-50">
-      <div className="flex items-center justify-between px-4 md:px-8 py-3">
-        <div className="flex items-center gap-3">
-          <div className="relative flex-shrink-0">
-            <AlertTriangle className="w-6 h-6 md:w-8 md:h-8 text-cyber-red animate-pulse" />
-            <span className="absolute top-0 right-0 w-2 h-2 bg-cyber-red rounded-full animate-pulse"></span>
-          </div>
-          <div className="hidden sm:block">
-            <h1 className="text-xl md:text-2xl font-bold text-white">AICDS</h1>
-            <p className="text-[10px] md:text-xs text-gray-400">Security Operations Center</p>
+    <header className="sticky top-0 z-30 bg-surface-base/90 backdrop-blur-sm border-b border-surface-border">
+      <div className="flex items-center justify-between gap-4 px-4 lg:px-8 h-14">
+        {/* Wordmark — minimal, no pulsing icons */}
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-2 h-2 rounded-pill bg-accent" aria-hidden />
+            <span className="font-medium text-ink tracking-tighter-2 text-base">
+              pleroma
+            </span>
+            <span className="hidden sm:inline-block text-2xs text-ink-subtle tabular ml-1">
+              detection · v1
+            </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 md:gap-6">
-          <div className="hidden lg:flex items-center gap-2 text-sm">
-            <Activity className={`w-4 h-4 ${isOnline ? 'text-cyber-green' : 'text-red-400'}`} />
-            <span className="text-gray-300">Status</span>
-            <span className={`${isOnline ? 'text-cyber-green' : 'text-red-400'} font-semibold`}>
-              {isOnline ? 'ONLINE' : 'OFFLINE'}
-            </span>
-          </div>
-          <div className="text-xs md:text-sm text-gray-400 font-mono">{time}</div>
+        {/* Right cluster: status + time + user + logout */}
+        <div className="flex items-center gap-2 lg:gap-5">
+          <StatusPill online={isOnline} />
 
-          {/* User info */}
+          <span className="hidden lg:inline text-xs text-ink-subtle tabular">
+            {time}
+          </span>
+
           {user && (
-            <div className="hidden md:block text-sm text-gray-300">
+            <span className="hidden md:inline text-xs text-ink-muted truncate max-w-[180px]">
               {user.email}
-            </div>
+            </span>
           )}
 
-          {/* Logout Button */}
           <button
             onClick={handleLogout}
-            className="flex items-center gap-2 px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-200 rounded-lg transition-colors text-sm font-medium border border-red-500/50"
+            aria-label="Log out"
+            className="inline-flex items-center gap-2 text-xs text-ink-muted hover:text-ink px-2.5 py-1.5 rounded-soft border border-transparent hover:border-surface-border transition-colors duration-200 ease-crisp"
           >
-            <LogOut className="w-4 h-4" />
-            <span className="hidden sm:inline">Logout</span>
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Sign out</span>
           </button>
         </div>
       </div>
-
-      {/* Status bar - hidden on very small screens, scrollable on others */}
-      <div className="border-t border-dark-700 px-4 md:px-8 py-2 flex gap-4 md:gap-6 text-[10px] md:text-xs overflow-x-auto no-scrollbar whitespace-nowrap">
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="w-2 h-2 bg-cyber-green rounded-full animate-pulse"></div>
-          <span className="text-gray-400">Active Monitoring</span>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="w-2 h-2 bg-cyber-green rounded-full animate-pulse"></div>
-          <span className="text-gray-400">All Systems Operational</span>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <div className="w-2 h-2 bg-cyber-yellow rounded-full animate-pulse"></div>
-          <span className="text-gray-400">3 Recent Alerts</span>
-        </div>
-      </div>
-    </nav>
+    </header>
   );
+}
+
+function StatusPill({ online }: { online: boolean | null }) {
+  const tone =
+    online === null
+      ? 'text-ink-subtle bg-surface-raised border-surface-border'
+      : online
+      ? 'text-signal-ok bg-signal-ok-bg border-signal-ok-border'
+      : 'text-signal-danger bg-signal-danger-bg border-signal-danger-border';
+  const label =
+    online === null ? 'Connecting' : online ? 'Online' : 'Offline';
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 text-2xs font-medium px-2 py-1 rounded-pill border ${tone}`}
+    >
+      <span
+        className={`w-1.5 h-1.5 rounded-pill ${
+          online === null
+            ? 'bg-ink-subtle'
+            : online
+            ? 'bg-signal-ok'
+            : 'bg-signal-danger'
+        }`}
+      />
+      {label}
+    </span>
+  );
+}
+
+function formatTime(d: Date) {
+  return d.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
 }
