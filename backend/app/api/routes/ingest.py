@@ -1,14 +1,18 @@
 """Flow ingestion endpoint for sensor agents.
 
 Accepts a batch of CIC-IDS2018-shaped feature dicts, runs each through
-the NetworkEngine, and persists only non-Benign flows to DetectionLog
-(otherwise the database fills with normal traffic from any moderately
-busy network). Returns per-flow verdicts so the sensor can keep its own
-local log of what got flagged.
+the NetworkEngine, and persists non-Benign flows to DetectionLog with
+a 10-minute per-(sensor, src_ip, raw_class) dedup window — without
+that, a public-facing VPS being probed by internet-wide scanners
+produces hundreds of nearly-identical scan log rows per minute and
+the dashboard becomes unreadable. Returns per-flow verdicts so the
+sensor can keep its own local log of everything classified.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from collections import OrderedDict
+from datetime import datetime, timedelta, timezone
+from threading import Lock
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
@@ -22,6 +26,45 @@ from app.services.log_service import LogService
 from app.utils.dependencies import get_current_sensor
 
 router = APIRouter(prefix="/ingest", tags=["Ingest"])
+
+
+# ---------- Dedup window ----------
+# In-memory only — resets on restart, which is fine. Keyed by the tuple
+# (sensor_id, src_ip, raw_class). If we've logged that exact combo in
+# the last DEDUP_WINDOW, the next occurrence is suppressed. Anything
+# new (different attacker IP, different attack family, or a >10 min
+# gap from the same source) produces a fresh row.
+DEDUP_WINDOW = timedelta(minutes=10)
+_DEDUP_MAX_KEYS = 50_000  # cap so a long-running process can't leak memory
+
+_recent_events: "OrderedDict[tuple, datetime]" = OrderedDict()
+_recent_lock = Lock()
+
+
+def _should_log(sensor_id: int, src_ip: str | None, raw_class: str) -> bool:
+    """Return True if this (sensor, src_ip, raw_class) combo should be
+    persisted now. False if we logged it less than DEDUP_WINDOW ago."""
+    if not src_ip:
+        # No IP attached (manual curl test, agent older than dedup
+        # support, etc.) — fall back to always-log so we don't silently
+        # drop legitimate events.
+        return True
+
+    now = datetime.now(timezone.utc)
+    key = (sensor_id, src_ip, raw_class)
+
+    with _recent_lock:
+        last = _recent_events.get(key)
+        if last is not None and (now - last) < DEDUP_WINDOW:
+            # Touch order so this entry is "fresh" in the LRU sense.
+            _recent_events.move_to_end(key)
+            return False
+
+        _recent_events[key] = now
+        _recent_events.move_to_end(key)
+        while len(_recent_events) > _DEDUP_MAX_KEYS:
+            _recent_events.popitem(last=False)
+        return True
 
 
 @router.post("/flow", response_model=IngestResponse)
@@ -54,21 +97,34 @@ def ingest_flow(
 
         # Persist only non-Benign flows. On a real network most flows are
         # benign and writing them all would balloon Postgres for no signal.
-        if raw_class != "Benign":
-            LogService.create_log(
-                db=db,
-                user_id=sensor.user_id,
-                category="NETWORK_TRAFFIC",
-                target=f"sensor:{sensor.name}",
-                verdict=verdict,
-                score=float(confidence),
-                report={
-                    "raw_class": raw_class,
-                    "sensor_id": sensor.id,
-                    "sensor_name": sensor.name,
-                    "raw_input": features,
-                },
-            )
-            logged += 1
+        if raw_class == "Benign":
+            continue
+
+        # Dedup window: suppress repeat events from the same
+        # (sensor, src_ip, raw_class) within the last 10 minutes.
+        # A public VPS sees the same bot scanners hammer the same
+        # ports continuously; without this every refresh of the
+        # dashboard shows fresh-but-identical detections.
+        src_ip = features.get("_src_ip")
+        if not _should_log(sensor.id, src_ip, raw_class):
+            continue
+
+        LogService.create_log(
+            db=db,
+            user_id=sensor.user_id,
+            category="NETWORK_TRAFFIC",
+            target=f"sensor:{sensor.name}",
+            verdict=verdict,
+            score=float(confidence),
+            report={
+                "raw_class": raw_class,
+                "sensor_id": sensor.id,
+                "sensor_name": sensor.name,
+                "src_ip": src_ip,
+                "dst_ip": features.get("_dst_ip"),
+                "raw_input": features,
+            },
+        )
+        logged += 1
 
     return IngestResponse(processed=processed, logged=logged, results=results)

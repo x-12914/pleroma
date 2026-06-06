@@ -511,6 +511,12 @@ def main() -> int:
 
             for flow in tracker.drain():
                 features = flow.to_features()
+                # Attach src/dst IP under '_'-prefixed keys so the engine
+                # treats them as not-a-feature (preprocess silently
+                # ignores unknown keys). Server uses them for dedup +
+                # display, never for classification.
+                features['_src_ip'] = flow.src_ip
+                features['_dst_ip'] = flow.dst_ip
                 pending.append(features)
                 dumper.write(features)
 
@@ -553,6 +559,8 @@ def main() -> int:
         # Final flush on shutdown
         for flow in tracker.force_flush_all():
             features = flow.to_features()
+            features['_src_ip'] = flow.src_ip
+            features['_dst_ip'] = flow.dst_ip
             pending.append(features)
             dumper.write(features)
         if pending:
