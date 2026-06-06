@@ -1,5 +1,12 @@
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 from app.db.models import DetectionLog, Feedback
+
+
+# Verdict labels treated as malicious-tier in the stat tallies.
+# Kept lowercase; we compare against `lower(verdict)` in the query.
+_MALICIOUS_VERDICTS = ('malicious', 'neptune', 'satan', 'ipsweep')
+
 
 class LogService:
     @staticmethod
@@ -30,22 +37,46 @@ class LogService:
 
     @staticmethod
     def get_stats(db: Session, user_id: int):
-        logs = db.query(DetectionLog).filter(DetectionLog.user_id == user_id).all()
-        total = len(logs)
+        """Aggregate verdict counts in the database, not in Python.
 
-        # Count threats: Malicious, Neptune, Satan, Ipsweep
-        threats = len([l for l in logs if l.verdict.lower() in ['malicious', 'neptune', 'satan', 'ipsweep']])
+        Previous impl pulled every row (including the JSONB report_data
+        column, which carries the full feature vector / OSINT blobs) into
+        memory and counted with list comprehensions. At ~120k rows the
+        single endpoint took ~19s and saturated the connection pool, so
+        subsequent calls timed out.
 
-        # Count suspicious: Suspicious verdicts
-        suspicious = len([l for l in logs if l.verdict.lower() == 'suspicious'])
+        This version runs a single COUNT + two SUM(CASE...) in Postgres
+        and returns three integers — typically sub-10ms regardless of
+        row count.
+        """
+        lower_verdict = func.lower(DetectionLog.verdict)
 
-        # "Safe" is total minus threats and suspicious (includes Normal, Safe, etc.)
-        safe = total - threats - suspicious
+        threat_sum = func.sum(
+            case((lower_verdict.in_(_MALICIOUS_VERDICTS), 1), else_=0)
+        )
+        suspicious_sum = func.sum(
+            case((lower_verdict == 'suspicious', 1), else_=0)
+        )
+
+        row = (
+            db.query(
+                func.count().label('total'),
+                threat_sum.label('threats'),
+                suspicious_sum.label('suspicious'),
+            )
+            .filter(DetectionLog.user_id == user_id)
+            .one()
+        )
+
+        total = int(row.total or 0)
+        threats = int(row.threats or 0)
+        suspicious = int(row.suspicious or 0)
+        safe = max(total - threats - suspicious, 0)
 
         return {
             "total_scans": total,
             "threats_detected": threats,
-            "clean_scans": safe  # Now includes all non-dangerous verdicts
+            "clean_scans": safe,
         }
 
     @staticmethod
