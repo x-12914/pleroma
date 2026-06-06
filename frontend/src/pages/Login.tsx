@@ -1,13 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Shield, Loader } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const Login: React.FC = () => {
+/* ---------------------------------------------------------------
+   Login — pared back. No shield icon, no "Secure Operator Portal"
+   subtitle, no all-caps button. Inline validation, inline errors,
+   single accent. Two fields, one button.
+   --------------------------------------------------------------- */
+
+export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
+  const [authError, setAuthError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -19,85 +26,135 @@ const Login: React.FC = () => {
     }
   }, [location.state]);
 
+  function validate(): boolean {
+    const errs: typeof fieldErrors = {};
+    const trimmed = email.trim();
+    if (!trimmed) errs.email = 'Email required.';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) errs.email = "That doesn't look like an email.";
+    if (!password) errs.password = 'Password required.';
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setAuthError(null);
+    if (!validate()) return;
     setIsLoading(true);
-
     try {
-      await login(email, password);
+      await login(email.trim(), password);
       navigate('/');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed. Please check your credentials.');
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      setAuthError(detail || 'Incorrect email or password.');
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center p-6 bg-[url('/grid.svg')] bg-center">
-      <div className="w-full max-w-md space-y-8 bg-dark-900/50 p-10 rounded-3xl border border-white/5 backdrop-blur-xl shadow-2xl">
-        <div className="text-center">
-          <div className="inline-flex p-4 rounded-2xl bg-cyber-blue/10 text-cyber-blue mb-4">
-            <Shield size={40} />
-          </div>
-          <h1 className="text-3xl font-black text-white tracking-tighter uppercase">AICDS</h1>
-          <p className="text-gray-500 text-xs font-bold uppercase tracking-widest mt-2">AI Cybersecurity Defense System</p>
-          <p className="text-gray-600 text-xs font-bold uppercase tracking-widest">Secure Operator Portal</p>
+    <main id="main" className="min-h-dvh grid place-items-center bg-surface-base px-4 py-12">
+      <div className="w-full max-w-sm space-y-8">
+        {/* Wordmark */}
+        <div className="flex items-center justify-center gap-2.5">
+          <div className="w-2 h-2 rounded-pill bg-accent" />
+          <span className="text-base font-medium text-ink tracking-tighter-2">pleroma</span>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="space-y-4">
-            {/* Email Input */}
-            <div className="relative group">
-              <input
-                type="email"
-                placeholder="Work Email"
-                required
-                className="w-full bg-black/40 border border-white/10 p-4 rounded-xl text-white outline-none focus:border-cyber-blue/50 transition-all"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                disabled={isLoading}
-              />
-            </div>
+        {/* Heading */}
+        <div className="text-center space-y-1.5">
+          <h1 className="text-display-md font-medium text-ink">Sign in</h1>
+          <p className="text-sm text-ink-subtle">
+            Use the credentials provided by your administrator.
+          </p>
+        </div>
 
-            {/* Password Input */}
-            <div className="relative group">
-              <input
-                type="password"
-                placeholder="Secure Password"
-                required
-                className="w-full bg-black/40 border border-white/10 p-4 rounded-xl text-white outline-none focus:border-cyber-blue/50 transition-all"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={isLoading}
-              />
-            </div>
-          </div>
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+          <Field
+            id="email"
+            type="email"
+            label="Email"
+            value={email}
+            onChange={setEmail}
+            error={fieldErrors.email}
+            autoComplete="email"
+            disabled={isLoading}
+          />
+          <Field
+            id="password"
+            type="password"
+            label="Password"
+            value={password}
+            onChange={setPassword}
+            error={fieldErrors.password}
+            autoComplete="current-password"
+            disabled={isLoading}
+          />
 
-          {/* Error Message */}
-          {error && (
-            <div className="p-4 bg-cyber-red/10 border border-cyber-red/20 rounded-xl text-cyber-red text-xs font-bold uppercase text-center">
-              {error}
+          {authError && (
+            <div
+              className="text-sm text-signal-danger bg-signal-danger-bg border border-signal-danger-border/40 rounded-soft px-3 py-2.5"
+              role="alert"
+            >
+              {authError}
             </div>
           )}
 
-          {/* Login Button */}
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full py-4 bg-cyber-blue text-black font-black uppercase tracking-widest text-xs rounded-xl hover:bg-blue-400 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-2.5 bg-accent hover:bg-accent-hi text-surface-base font-medium rounded-soft transition-colors duration-200 ease-crisp flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            {isLoading ? <Loader className="animate-spin" size={18} /> : 'Sign In'}
+            {isLoading && <Loader2 className="animate-spin w-4 h-4" />}
+            {isLoading ? 'Signing in' : 'Sign in'}
           </button>
         </form>
 
-        <p className="text-center text-gray-500 text-xs font-bold uppercase tracking-widest">
-          New to AICDS? <a href="/register" className="text-cyber-blue hover:underline">Sign Up</a>
+        {/* Register link */}
+        <p className="text-center text-xs text-ink-subtle">
+          No account yet?{' '}
+          <Link to="/register" className="text-accent hover:text-accent-hi underline-offset-4 hover:underline">
+            Create one
+          </Link>
         </p>
       </div>
+    </main>
+  );
+}
+
+/* ---------- Field ---------- */
+
+function Field({
+  id, type, label, value, onChange, error, autoComplete, disabled,
+}: {
+  id: string;
+  type: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+  autoComplete?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className="block text-xs text-ink-muted mb-1.5">{label}</label>
+      <input
+        id={id}
+        type={type}
+        value={value}
+        autoComplete={autoComplete}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        aria-invalid={!!error}
+        className={`w-full px-3 py-2.5 bg-surface-card border rounded-soft text-sm text-ink placeholder:text-ink-dim transition-shadow focus:outline-none focus:shadow-focus-ring ${
+          error ? 'border-signal-danger-border/60' : 'border-surface-border focus:border-accent-border'
+        }`}
+      />
+      {error && (
+        <p className="mt-1 text-2xs text-signal-danger">{error}</p>
+      )}
     </div>
   );
-};
-
-export default Login;
+}

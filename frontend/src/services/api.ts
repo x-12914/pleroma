@@ -59,8 +59,8 @@ export const analysisService = {
   getStats: () => api.get('/logs/stats'),
   
   // We provide both names so Dashboard.tsx and Logs.tsx both work without errors
-  getHistory: (limit = 10) => api.get(`/logs/?limit=${limit}`),
-  getLogs: (limit = 10) => api.get(`/logs/?limit=${limit}`), 
+  getHistory: (limit = 10, offset = 0) => api.get(`/logs/?limit=${limit}&offset=${offset}`),
+  getLogs: (limit = 10, offset = 0) => api.get(`/logs/?limit=${limit}&offset=${offset}`),
   
   // Admin
   retrainModel: () => api.post('/analysis/network/retrain/'),

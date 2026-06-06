@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Search, X, Download, Info, ChevronRight } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Search, X, Download, Info, ChevronRight, ChevronLeft } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import { analysisService } from '../services/api';
@@ -38,6 +38,8 @@ interface LogEntry {
   };
 }
 
+const PAGE_SIZE = 50;
+
 export default function Logs() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [stats, setStats] = useState({ total_scans: 0, threats_detected: 0, clean_scans: 0 });
@@ -45,16 +47,14 @@ export default function Logs() {
   const [loading, setLoading] = useState(true);
   const [isFeedbacking, setIsFeedbacking] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [page, setPage] = useState(0); // 0-indexed; page 0 is the newest
 
-  useEffect(() => {
-    fetchAll();
-  }, []);
-
-  async function fetchAll() {
+  const fetchPage = useCallback(async (targetPage: number) => {
     setLoading(true);
     try {
+      const offset = targetPage * PAGE_SIZE;
       const [history, stat] = await Promise.all([
-        analysisService.getHistory(100),
+        analysisService.getHistory(PAGE_SIZE, offset),
         analysisService.getStats(),
       ]);
       setLogs(history.data || []);
@@ -64,7 +64,14 @@ export default function Logs() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    fetchPage(page);
+  }, [page, fetchPage]);
+
+  // Helper used by the feedback handler — refresh the current page.
+  const refreshCurrent = useCallback(() => fetchPage(page), [page, fetchPage]);
 
   async function handleFeedback(logId: number, isCorrect: boolean, corrected: string) {
     setIsFeedbacking(true);
@@ -75,7 +82,7 @@ export default function Logs() {
       });
       toast.success('Feedback recorded.');
       setSelectedLog(null);
-      await fetchAll();
+      await refreshCurrent();
     } catch {
       toast.error('Could not submit feedback.');
     } finally {
@@ -170,6 +177,34 @@ export default function Logs() {
           className="w-full pl-10 pr-4 py-2.5 bg-surface-card border border-surface-border rounded-soft text-sm text-ink placeholder:text-ink-dim focus:outline-none focus:border-accent-border focus:shadow-focus-ring transition-shadow"
         />
       </div>
+
+      {/* Page header — only shows when not on first page or when there's more */}
+      {(page > 0 || logs.length === PAGE_SIZE) && (
+        <div className="flex items-center justify-between text-2xs text-ink-subtle px-1">
+          <span className="tabular">
+            Page <span className="text-ink">{page + 1}</span>
+            {stats.total_scans > 0 && (
+              <> — showing {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + logs.length} of {stats.total_scans.toLocaleString()}</>
+            )}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+              disabled={page === 0 || loading}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-soft border border-surface-border bg-surface-card text-ink-muted hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" /> Newer
+            </button>
+            <button
+              onClick={() => setPage(p => p + 1)}
+              disabled={logs.length < PAGE_SIZE || loading}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-soft border border-surface-border bg-surface-card text-ink-muted hover:text-ink disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Older <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Detection list */}
       <section className="bg-surface-card border border-surface-border rounded-card overflow-hidden">

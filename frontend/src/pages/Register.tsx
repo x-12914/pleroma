@@ -1,88 +1,154 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ShieldCheck, Mail, Lock, ArrowRight, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { authService } from '../services/api';
+
+/* ---------------------------------------------------------------
+   Register — same shape as Login. Inline validation. Drops
+   "JOIN AICDS" / "SOC Analyst account" branding. bcrypt 72-byte
+   limit enforced client-side so the user finds out before the
+   server rejects.
+   --------------------------------------------------------------- */
 
 export default function Register() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
+  const [authError, setAuthError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  function validate(): boolean {
+    const errs: typeof fieldErrors = {};
+    const trimmed = email.trim();
+    if (!trimmed) errs.email = 'Email required.';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) errs.email = "That doesn't look like an email.";
+    if (!password) errs.password = 'Password required.';
+    else if (password.length < 8) errs.password = 'Use at least 8 characters.';
+    else if (new TextEncoder().encode(password).length > 72) {
+      errs.password = 'Maximum 72 bytes (bcrypt limit).';
+    }
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
+  }
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAuthError(null);
+    if (!validate()) return;
     setLoading(true);
-    setError(null);
-
     try {
-      await authService.register({ email, password });
-      // Redirect to login after successful registration
-      navigate('/login', { state: { message: 'Registration successful! Please login.' } });
+      await authService.register({ email: email.trim(), password });
+      navigate('/login', {
+        state: { message: 'Account created. Sign in to continue.' },
+      });
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Registration failed. Try again.');
+      const detail = err?.response?.data?.detail;
+      setAuthError(detail || 'Could not register. Try again.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center p-6 bg-[url('/grid.svg')] bg-center">
-      <div className="w-full max-w-md space-y-8 bg-dark-900/50 p-10 rounded-3xl border border-white/5 backdrop-blur-xl shadow-2xl">
-        <div className="text-center">
-          <div className="inline-flex p-4 rounded-2xl bg-cyber-blue/10 text-cyber-blue mb-4">
-            <ShieldCheck size={40} />
-          </div>
-          <h1 className="text-3xl font-black text-white tracking-tighter uppercase">Join AICDS</h1>
-          <p className="text-gray-500 text-xs font-bold uppercase tracking-widest mt-2">Create your SOC Analyst account</p>
+    <main id="main" className="min-h-dvh grid place-items-center bg-surface-base px-4 py-12">
+      <div className="w-full max-w-sm space-y-8">
+        <div className="flex items-center justify-center gap-2.5">
+          <div className="w-2 h-2 rounded-pill bg-accent" />
+          <span className="text-base font-medium text-ink tracking-tighter-2">pleroma</span>
         </div>
 
-        <form onSubmit={handleRegister} className="space-y-6">
-          <div className="space-y-4">
-            <div className="relative group">
-              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-cyber-blue transition-colors" size={18} />
-              <input
-                type="email"
-                placeholder="Work Email"
-                required
-                className="w-full bg-black/40 border border-white/10 p-4 pl-12 rounded-xl text-white outline-none focus:border-cyber-blue/50 transition-all"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-            <div className="relative group">
-              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-cyber-blue transition-colors" size={18} />
-              <input
-                type="password"
-                placeholder="Secure Password"
-                required
-                className="w-full bg-black/40 border border-white/10 p-4 pl-12 rounded-xl text-white outline-none focus:border-cyber-blue/50 transition-all"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-          </div>
+        <div className="text-center space-y-1.5">
+          <h1 className="text-display-md font-medium text-ink">Create an account</h1>
+          <p className="text-sm text-ink-subtle">Takes a moment. No email verification.</p>
+        </div>
 
-          {error && (
-            <div className="p-4 bg-cyber-red/10 border border-cyber-red/20 rounded-xl text-cyber-red text-xs font-bold uppercase text-center">
-              {error}
+        <form onSubmit={handleRegister} className="space-y-4" noValidate>
+          <Field
+            id="email"
+            type="email"
+            label="Email"
+            value={email}
+            onChange={setEmail}
+            error={fieldErrors.email}
+            autoComplete="email"
+            disabled={loading}
+          />
+          <Field
+            id="password"
+            type="password"
+            label="Password"
+            value={password}
+            onChange={setPassword}
+            error={fieldErrors.password}
+            autoComplete="new-password"
+            disabled={loading}
+            hint="At least 8 characters. Up to 72 bytes."
+          />
+
+          {authError && (
+            <div
+              className="text-sm text-signal-danger bg-signal-danger-bg border border-signal-danger-border/40 rounded-soft px-3 py-2.5"
+              role="alert"
+            >
+              {authError}
             </div>
           )}
 
           <button
+            type="submit"
             disabled={loading}
-            className="w-full py-4 bg-cyber-blue text-black font-black uppercase tracking-widest text-xs rounded-xl hover:bg-blue-400 transition-all flex items-center justify-center gap-2"
+            className="w-full py-2.5 bg-accent hover:bg-accent-hi text-surface-base font-medium rounded-soft transition-colors duration-200 ease-crisp flex items-center justify-center gap-2 disabled:opacity-60"
           >
-            {loading ? <Loader2 className="animate-spin" size={18} /> : (
-              <>Create Account <ArrowRight size={18} /></>
-            )}
+            {loading && <Loader2 className="animate-spin w-4 h-4" />}
+            {loading ? 'Creating account' : 'Create account'}
           </button>
         </form>
 
-        <p className="text-center text-gray-500 text-xs font-bold uppercase tracking-widest">
-          Already have access? <Link to="/login" className="text-cyber-blue hover:underline">Sign In</Link>
+        <p className="text-center text-xs text-ink-subtle">
+          Already have an account?{' '}
+          <Link to="/login" className="text-accent hover:text-accent-hi underline-offset-4 hover:underline">
+            Sign in
+          </Link>
         </p>
       </div>
+    </main>
+  );
+}
+
+function Field({
+  id, type, label, value, onChange, error, autoComplete, disabled, hint,
+}: {
+  id: string;
+  type: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+  autoComplete?: string;
+  disabled?: boolean;
+  hint?: string;
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className="block text-xs text-ink-muted mb-1.5">{label}</label>
+      <input
+        id={id}
+        type={type}
+        value={value}
+        autoComplete={autoComplete}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        aria-invalid={!!error}
+        className={`w-full px-3 py-2.5 bg-surface-card border rounded-soft text-sm text-ink placeholder:text-ink-dim transition-shadow focus:outline-none focus:shadow-focus-ring ${
+          error ? 'border-signal-danger-border/60' : 'border-surface-border focus:border-accent-border'
+        }`}
+      />
+      {error ? (
+        <p className="mt-1 text-2xs text-signal-danger">{error}</p>
+      ) : hint ? (
+        <p className="mt-1 text-2xs text-ink-dim">{hint}</p>
+      ) : null}
     </div>
   );
 }
