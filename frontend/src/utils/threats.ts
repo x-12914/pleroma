@@ -83,6 +83,12 @@ export const THREAT_INFO: Record<string, ThreatInfo> = {
       'A long-lived web connection where the client drips data and the server is barely responding — Slowloris-family signature.',
     severity: 'suspicious',
   },
+  'Anomaly-novel': {
+    name: 'Novel Anomaly',
+    description:
+      'The flow does not match any pattern the classifier was trained on. Out-of-distribution behaviour that warrants a human eye — could be a new attack family, an unusual legitimate workload, or noise.',
+    severity: 'suspicious',
+  },
   PortScan: {
     name: 'Port Scan',
     description:

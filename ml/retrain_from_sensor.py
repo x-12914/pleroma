@@ -52,7 +52,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import IsolationForest, RandomForestClassifier
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
@@ -178,14 +178,44 @@ def main(args: list[str]) -> int:
             print(f"{cm[i, j]:>13,}", end="")
         print()
 
+    # ------------------------------------------------------------------
+    # IsolationForest — novel-anomaly detector
+    # ------------------------------------------------------------------
+    # Trained on the SAME data the RF saw (Benign + all attack classes).
+    # At inference, scores how far a flow is from "anything in training."
+    # Flows with strongly negative decision_function get flagged as
+    # Anomaly-novel by the engine, instead of being shoehorned into the
+    # nearest known class — which is the whole point of a 4-class model
+    # without a "none of the above" bucket.
+    print("\nTraining IsolationForest for novel-anomaly detection ...")
+    t1 = time.time()
+    iforest = IsolationForest(
+        n_estimators=200,
+        # contamination='auto' uses the original Liu/Zhou/Ting threshold
+        # (offset_ = -0.5) instead of trying to label a fixed % as outliers.
+        contamination="auto",
+        random_state=RANDOM_STATE,
+        n_jobs=-1,
+    )
+    iforest.fit(X_train_s)
+    print(f"  done in {time.time() - t1:.1f}s")
+
+    # Sanity-check: what fraction of held-out test flows are flagged?
+    # Should be low (~5-15%) on data that came from the same distribution.
+    test_scores = iforest.decision_function(X_test_s)
+    flagged_pct = (test_scores < 0).mean() * 100
+    print(f"  in-distribution sanity check: {flagged_pct:.1f}% of held-out test rows scored <0 (flagged)")
+
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, OUT_DIR / "model.joblib", compress=3)
     joblib.dump(scaler, OUT_DIR / "scaler.joblib")
     joblib.dump(encoder, OUT_DIR / "label_encoder.joblib")
     joblib.dump(feature_names, OUT_DIR / "feature_names.joblib")
+    joblib.dump(iforest, OUT_DIR / "iforest.joblib", compress=3)
 
     print(f"\nArtifacts saved to {OUT_DIR}:")
-    for name in ("model.joblib", "scaler.joblib", "label_encoder.joblib", "feature_names.joblib"):
+    for name in ("model.joblib", "scaler.joblib", "label_encoder.joblib",
+                 "feature_names.joblib", "iforest.joblib"):
         p = OUT_DIR / name
         print(f"  {p.name:<24} {p.stat().st_size / 1e6:>6.2f} MB")
 

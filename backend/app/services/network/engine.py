@@ -43,6 +43,12 @@ VERDICT_MAPPING: dict[str, str] = {
 # so low-confidence predictions don't trigger block-tier alerts.
 CONFIDENCE_THRESHOLD = 0.60
 
+# IsolationForest decision_function threshold. The forest returns >0 for
+# in-distribution samples, <0 for outliers. We require a strongly
+# negative score before declaring "novel" — anything in [-0.05, 0] is
+# borderline (training tail) and gets passed to the model normally.
+ANOMALY_THRESHOLD = -0.05
+
 
 def _normalize_key(k: str) -> str:
     """Collapse `Dst Port`, `Flow Byts/s`, `dst_port` etc. to a single
@@ -62,11 +68,16 @@ class NetworkEngine:
         self.scaler_path = self.data_dir / "scaler.joblib"
         self.encoder_path = self.data_dir / "label_encoder.joblib"
         self.features_path = self.data_dir / "feature_names.joblib"
+        # Optional — if present, used to flag novel anomalies. The engine
+        # functions without it; absence just means the anomaly layer is
+        # skipped and predictions fall through to the RF as before.
+        self.iforest_path = self.data_dir / "iforest.joblib"
 
         self.model: Any = None
         self.scaler: Any = None
         self.encoder: Any = None
         self.feature_names: list[str] = []
+        self.iforest: Any = None
         self.is_mock: bool = True
 
         self.load_artifacts()
@@ -108,11 +119,32 @@ class NetworkEngine:
                 _normalize_key(name): name for name in self.feature_names
             }
             self.is_mock = False
-            print(
-                f"✅ NetworkEngine: CIC-IDS2018 RF loaded "
-                f"({len(self.feature_names)} features, "
-                f"{len(self.encoder.classes_)} classes)"
-            )
+            # IsolationForest is optional — only present if retrain_from_sensor.py
+            # was run after the Phase 8b update. Older artifact dirs won't have it.
+            if self.iforest_path.exists():
+                try:
+                    self.iforest = joblib.load(self.iforest_path)
+                    if hasattr(self.iforest, "verbose"):
+                        self.iforest.verbose = 0
+                    print(
+                        f"✅ NetworkEngine: CIC-IDS2018 RF + IsolationForest loaded "
+                        f"({len(self.feature_names)} features, "
+                        f"{len(self.encoder.classes_)} classes)"
+                    )
+                except Exception as exc:
+                    print(f"⚠️ NetworkEngine: IsolationForest load failed: {exc}")
+                    self.iforest = None
+                    print(
+                        f"✅ NetworkEngine: CIC-IDS2018 RF loaded "
+                        f"({len(self.feature_names)} features, "
+                        f"{len(self.encoder.classes_)} classes); anomaly layer skipped"
+                    )
+            else:
+                print(
+                    f"✅ NetworkEngine: CIC-IDS2018 RF loaded "
+                    f"({len(self.feature_names)} features, "
+                    f"{len(self.encoder.classes_)} classes); no iforest.joblib"
+                )
         except Exception as exc:
             print(f"❌ NetworkEngine: load failed: {exc}")
             self.is_mock = True
@@ -209,16 +241,29 @@ class NetworkEngine:
         if self.is_mock:
             return "Error", 0.0, "MOCK_MODE"
 
-        # Heuristic overrides fire BEFORE the model so an obvious scan
-        # probe doesn't get whitewashed as Benign when the model fails
-        # to recognize it. Override is also cheaper than predict() so
-        # there's no perf cost.
+        # Order of operations:
+        #   1. Heuristic overrides — explicit, well-known patterns
+        #      (single-SYN scan, slow-headers). Cheapest; runs first.
+        #   2. IsolationForest anomaly check — flow is far from anything
+        #      we saw during training? Flag as novel before the model
+        #      shoehorns it into the nearest known class.
+        #   3. RandomForest model — multiclass classification.
         override = self._heuristic_override(record)
         if override is not None:
             return override
 
         try:
             X = self.preprocess(record)
+
+            # ---- Anomaly layer ----
+            if self.iforest is not None:
+                anomaly_score = float(self.iforest.decision_function(X)[0])
+                if anomaly_score < ANOMALY_THRESHOLD:
+                    # Confidence proxy: how far past threshold, capped at 1.
+                    confidence = min(1.0, abs(anomaly_score - ANOMALY_THRESHOLD) * 5)
+                    return "Suspicious", float(confidence), "Anomaly-novel"
+
+            # ---- Multiclass classification ----
             pred_idx = int(self.model.predict(X)[0])
             probs = self.model.predict_proba(X)[0]
             confidence = float(np.max(probs))
