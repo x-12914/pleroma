@@ -34,18 +34,44 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise credentials_exception
     return user
 
-# 2. NEW: This function checks if that user is an admin
-def get_current_admin(current_user: User = Depends(get_current_user)):
+# 2. Role-based access control
+# Roles in ascending order; require_role(min_role) enforces hierarchical access.
+_ROLE_HIERARCHY = {"viewer": 1, "analyst": 2, "admin": 3}
+
+
+def _user_role_rank(user: User) -> int:
+    """Resolve the user's effective role rank.
+
+    Falls back to is_admin for accounts that predate the role column.
     """
-    Checks if the current authenticated user has admin privileges.
-    Used for sensitive routes like model retraining.
-    """
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Operation not permitted. Admin privileges required."
-        )
-    return current_user
+    role = getattr(user, "role", None)
+    if role and role in _ROLE_HIERARCHY:
+        return _ROLE_HIERARCHY[role]
+    return _ROLE_HIERARCHY["admin"] if user.is_admin else _ROLE_HIERARCHY["analyst"]
+
+
+def require_role(min_role: str):
+    """Dependency factory: require the user to be at least `min_role`."""
+    if min_role not in _ROLE_HIERARCHY:
+        raise ValueError(f"Unknown role: {min_role}")
+    required = _ROLE_HIERARCHY[min_role]
+
+    def _dep(current_user: User = Depends(get_current_user)) -> User:
+        if _user_role_rank(current_user) < required:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Requires {min_role} role or higher.",
+            )
+        return current_user
+
+    return _dep
+
+
+# Convenience pre-bound dependencies — most route signatures import these
+# rather than calling require_role() inline.
+get_current_viewer = require_role("viewer")
+get_current_analyst = require_role("analyst")
+get_current_admin = require_role("admin")
 
 
 # 3. Sensor authentication via X-Sensor-Key header.

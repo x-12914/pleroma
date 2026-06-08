@@ -2,32 +2,46 @@ import { Link, useLocation } from 'react-router-dom';
 import { LayoutDashboard, FileText, Globe, Radio, Menu, X, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import type { Role } from '../context/AuthContext';
 import { analysisService } from '../services/api';
 
 /* ---------------------------------------------------------------
-   Sidebar — sentence case labels, refined surfaces, no pulsing
-   indicators. The "SOC" logo block + "Status: Online" pip are gone
-   (Navbar handles status). Admin retrain block is restrained.
+   Sidebar — sentence case, refined surfaces, role-aware.
+
+   Each nav entry declares the minimum role required to see it.
+   The retrain panel is visible to analyst+ (so demo accounts can
+   showcase the feature) but the button only fires for admin —
+   analysts see it disabled with an explanatory tooltip.
    --------------------------------------------------------------- */
 
-const menu = [
-  { path: '/',         icon: LayoutDashboard, label: 'Overview' },
-  { path: '/url-scan', icon: Globe,           label: 'URL scan' },
-  { path: '/sensors',  icon: Radio,           label: 'Sensors' },
-  { path: '/logs',     icon: FileText,        label: 'Detections' },
+interface MenuItem {
+  path: string;
+  icon: typeof LayoutDashboard;
+  label: string;
+  minRole: Role;
+}
+
+const menu: MenuItem[] = [
+  { path: '/',         icon: LayoutDashboard, label: 'Overview',    minRole: 'viewer'  },
+  { path: '/url-scan', icon: Globe,           label: 'URL scan',    minRole: 'analyst' },
+  { path: '/sensors',  icon: Radio,           label: 'Sensors',     minRole: 'analyst' },
+  { path: '/logs',     icon: FileText,        label: 'Detections',  minRole: 'viewer'  },
 ];
 
 export default function Sidebar() {
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, hasRole } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [isRetraining, setIsRetraining] = useState(false);
 
   const isActive = (path: string) =>
     path === '/' ? location.pathname === '/' : location.pathname.startsWith(path);
 
+  const isAdmin = hasRole('admin');
+  const isAnalyst = hasRole('analyst');
+
   const handleRetrain = async () => {
-    if (isRetraining) return;
+    if (isRetraining || !isAdmin) return;
     if (!window.confirm('Trigger model retraining? This runs in the background and may take several minutes.')) return;
     setIsRetraining(true);
     try {
@@ -39,11 +53,13 @@ export default function Sidebar() {
     }
   };
 
+  const visibleMenu = menu.filter((item) => hasRole(item.minRole));
+
   return (
     <>
       {/* Mobile menu toggle — bottom-right, subtle */}
       <button
-        onClick={() => setIsOpen(v => !v)}
+        onClick={() => setIsOpen((v) => !v)}
         aria-label={isOpen ? 'Close menu' : 'Open menu'}
         className="lg:hidden fixed bottom-5 right-5 z-40 w-11 h-11 grid place-items-center rounded-pill bg-surface-card border border-surface-border text-ink-muted shadow-panel"
       >
@@ -71,7 +87,7 @@ export default function Sidebar() {
             <p className="px-3 pt-2 pb-2 text-2xs uppercase tracking-micro text-ink-dim">
               Sections
             </p>
-            {menu.map(({ path, icon: Icon, label }) => {
+            {visibleMenu.map(({ path, icon: Icon, label }) => {
               const active = isActive(path);
               return (
                 <Link
@@ -85,23 +101,37 @@ export default function Sidebar() {
                   }`}
                   aria-current={active ? 'page' : undefined}
                 >
-                  <Icon className={`w-4 h-4 ${active ? 'text-accent' : 'text-ink-subtle group-hover:text-ink-muted'}`} />
+                  <Icon className={`w-4 h-4 ${active ? 'text-accent' : 'text-ink-subtle'}`} />
                   <span>{label}</span>
                 </Link>
               );
             })}
           </nav>
 
-          {/* Admin panel — restrained */}
-          {user?.is_admin && (
+          {/* Role pill — small but present, so demo accounts can show it */}
+          {user && (
+            <div className="px-3 pb-2">
+              <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-soft border border-surface-border bg-surface-card">
+                <span className="text-2xs uppercase tracking-micro text-ink-dim">Role</span>
+                <span className="text-2xs font-medium tabular text-ink-muted">
+                  {(user.role ?? (user.is_admin ? 'admin' : 'analyst')).toUpperCase()}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Admin retrain panel — visible to analyst+ so demos can show the
+              feature; button only fires for admin. Analysts see it disabled. */}
+          {isAnalyst && (
             <div className="px-3 pb-3">
               <div className="rounded-card bg-surface-card border border-surface-border p-4">
                 <p className="text-2xs uppercase tracking-micro text-ink-dim mb-1.5">Admin</p>
                 <p className="text-sm text-ink mb-3">Retrain classifier</p>
                 <button
                   onClick={handleRetrain}
-                  disabled={isRetraining}
-                  className="w-full inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-soft text-xs font-medium text-accent bg-accent-quiet hover:bg-accent-subtle border border-accent-border/50 transition-colors duration-200 ease-crisp disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={isRetraining || !isAdmin}
+                  title={!isAdmin ? 'Admin role required to trigger retraining.' : undefined}
+                  className="w-full inline-flex items-center justify-center gap-2 px-3 py-1.5 rounded-soft text-xs font-medium text-accent bg-accent-quiet hover:bg-accent-subtle border border-accent-border/50 transition-colors duration-200 ease-crisp disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-accent-quiet"
                 >
                   {isRetraining ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -109,7 +139,9 @@ export default function Sidebar() {
                   {isRetraining ? 'Retraining' : 'Trigger retrain'}
                 </button>
                 <p className="mt-2 text-2xs text-ink-dim leading-snug">
-                  Runs in the background. Active classifier is hot-swapped on completion.
+                  {isAdmin
+                    ? 'Runs in the background. Classifier hot-swapped on completion.'
+                    : 'Visible for transparency. Only admins can trigger.'}
                 </p>
               </div>
             </div>

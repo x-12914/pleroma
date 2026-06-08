@@ -11,6 +11,13 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
+    # Roles, ascending in privilege:
+    #   viewer  — read-only on detections + dashboard; can't run scans or manage sensors
+    #   analyst — viewer + run URL scans + register/revoke own sensors
+    #   admin   — analyst + trigger classifier retraining (only destructive action)
+    # is_admin retained for backwards compat; kept in sync via require_role and
+    # the role-init migration in database.py.
+    role = Column(String, nullable=False, default='viewer', index=True)
     is_admin = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

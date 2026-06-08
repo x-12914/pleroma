@@ -4,9 +4,13 @@ import { authService } from "../services/api";
 // -----------------------------
 // Types
 // -----------------------------
+export type Role = 'viewer' | 'analyst' | 'admin';
+
 interface User {
+  id?: number;
   email: string;
   is_admin?: boolean;
+  role?: Role;
 }
 
 interface AuthContextType {
@@ -15,6 +19,17 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   loading: boolean;
+  // True if the user holds at least the given role. Treats older accounts
+  // (no role field) as 'analyst' so existing sessions don't lose access.
+  hasRole: (min: Role) => boolean;
+}
+
+const ROLE_RANK: Record<Role, number> = { viewer: 1, analyst: 2, admin: 3 };
+
+function userRole(u: User | null): Role {
+  if (!u) return 'viewer';
+  if (u.role && ROLE_RANK[u.role]) return u.role;
+  return u.is_admin ? 'admin' : 'analyst';
 }
 
 // -----------------------------
@@ -112,6 +127,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   // -----------------------------
+  // Role check
+  // -----------------------------
+  const hasRole = (min: Role): boolean => {
+    return ROLE_RANK[userRole(user)] >= ROLE_RANK[min];
+  };
+
+  // -----------------------------
   // Provider Value
   // -----------------------------
   return (
@@ -122,6 +144,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         login,
         logout,
         loading,
+        hasRole,
       }}
     >
       {children}

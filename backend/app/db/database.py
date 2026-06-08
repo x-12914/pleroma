@@ -24,6 +24,25 @@ def init_db():
                 "ALTER TABLE IF EXISTS detection_logs ADD COLUMN IF NOT EXISTS report_data JSONB"
             )
         )
+        # Role column for RBAC. Add if missing, then backfill from is_admin so
+        # existing accounts keep their privileges (admins stay admins; non-admins
+        # default to 'analyst' rather than the more-restrictive 'viewer' since
+        # they predate the role distinction).
+        conn.execute(
+            text(
+                "ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS role VARCHAR DEFAULT 'viewer'"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE users SET role = 'admin' WHERE is_admin = true AND (role IS NULL OR role = 'viewer')"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE users SET role = 'analyst' WHERE is_admin = false AND (role IS NULL OR role = 'viewer')"
+            )
+        )
 
 
 def get_db():

@@ -49,10 +49,16 @@ async def health_check(request: Request):
 # Example of a protected route
 @app.get("/api/v1/me")
 def read_users_me(current_user=Depends(get_current_user)):
+    # Resolve role with the same fallback the auth dependency uses, so /me
+    # never returns null on accounts that predate the role column.
+    role = getattr(current_user, "role", None)
+    if not role:
+        role = "admin" if current_user.is_admin else "analyst"
     return {
         "id": current_user.id,
         "email": current_user.email,
         "is_admin": bool(current_user.is_admin),
+        "role": role,
     }
 
 @app.exception_handler(Exception)

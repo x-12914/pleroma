@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import Sensor
 from app.schemas.schemas import SensorCreate, SensorCreated, SensorOut
-from app.utils.dependencies import get_current_user
+from app.utils.dependencies import get_current_user, get_current_analyst
 
 router = APIRouter(prefix="/sensors", tags=["Sensors"])
 
@@ -26,7 +26,8 @@ router = APIRouter(prefix="/sensors", tags=["Sensors"])
 @router.post("/", response_model=SensorCreated, status_code=status.HTTP_201_CREATED)
 def create_sensor(
     payload: SensorCreate,
-    current_user=Depends(get_current_user),
+    # analyst+ — viewers cannot register or revoke sensors
+    current_user=Depends(get_current_analyst),
     db: Session = Depends(get_db),
 ):
     name = payload.name.strip()
@@ -65,7 +66,8 @@ def create_sensor(
 
 @router.get("/", response_model=List[SensorOut])
 def list_sensors(
-    current_user=Depends(get_current_user),
+    # analyst+ — viewers cannot register or revoke sensors
+    current_user=Depends(get_current_analyst),
     db: Session = Depends(get_db),
 ):
     return (
@@ -79,7 +81,8 @@ def list_sensors(
 @router.delete("/{sensor_id}")
 def delete_sensor(
     sensor_id: int,
-    current_user=Depends(get_current_user),
+    # analyst+ — viewers cannot register or revoke sensors
+    current_user=Depends(get_current_analyst),
     db: Session = Depends(get_db),
 ):
     sensor = (

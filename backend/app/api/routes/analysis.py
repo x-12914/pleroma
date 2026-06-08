@@ -10,7 +10,7 @@ from app.schemas.schemas import (
     TaskStatus,
 )
 from app.services.analysis_service import AnalysisService
-from app.utils.dependencies import get_current_user, get_current_admin
+from app.utils.dependencies import get_current_user, get_current_admin, get_current_analyst
 from app.services.network.trainer import perform_retraining
 
 router = APIRouter(prefix="/analysis", tags=["Analysis"])
@@ -21,7 +21,8 @@ def analyze_url(
     request: Request,
     payload: URLAnalysisRequest,
     background_tasks: BackgroundTasks,
-    current_user = Depends(get_current_user),
+    # analyst+ — viewers can't initiate scans
+    current_user = Depends(get_current_analyst),
     db: Session = Depends(get_db)
 ):
     target_url = str(payload.url)
@@ -37,7 +38,8 @@ def analyze_network(
     request: Request,
     payload: NetworkAnalysisRequest,
     background_tasks: BackgroundTasks,
-    current_user = Depends(get_current_user),
+    # analyst+ — viewers can't run ad-hoc network analysis
+    current_user = Depends(get_current_analyst),
     db: Session = Depends(get_db)
 ):
     # 1. Create task in Neon DB (Persistent)
