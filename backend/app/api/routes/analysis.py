@@ -11,7 +11,7 @@ from app.schemas.schemas import (
 )
 from app.services.analysis_service import AnalysisService
 from app.utils.dependencies import get_current_user, get_current_admin, get_current_analyst
-from app.services.network.trainer import perform_retraining
+from app.services.network import retrain
 
 router = APIRouter(prefix="/analysis", tags=["Analysis"])
 
@@ -72,12 +72,24 @@ def get_task_status(
     }
 
 @router.post("/network/retrain")
-async def trigger_retraining(
+@limiter.limit("4/hour")
+def trigger_retraining(
+    request: Request,
     background_tasks: BackgroundTasks,
-    current_user = Depends(get_current_admin) # Only Admins!
+    current_user = Depends(get_current_admin),  # Only Admins!
 ):
+    """Retrain the network model from captured flows (base CSVs + auto-sampled
+    benign + analyst feedback).
+
+    Runs in the background and is safe: the new model is only deployed if it
+    passes the data/quality gate, and deployment is atomic with rollback.
+    Poll GET /network/retrain/status for the result and metrics.
     """
-    Trigger the ML engine to refresh its model using the latest data.
-    """
-    background_tasks.add_task(perform_retraining)
-    return {"message": "Retraining initiated in the background."}
+    background_tasks.add_task(retrain.run_retrain_and_record)
+    return {"message": "Retraining started. Poll /api/v1/analysis/network/retrain/status."}
+
+
+@router.get("/network/retrain/status")
+def retrain_status(current_user = Depends(get_current_admin)):
+    """Last retrain's status, metrics, and deploy/rollback outcome."""
+    return retrain.read_last_result()

@@ -26,7 +26,12 @@ class Settings(BaseSettings):
 
     # CORS Allowed Origins
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000,https://localhost:5173,https://localhost:3000"
-    
+
+    # Network model retraining
+    NETWORK_BASE_DATASET_DIR: str = "/opt/pleroma/ml/data/base"  # base capture CSVs
+    BENIGN_SAMPLE_RATE: float = 0.02   # fraction of benign flows persisted at ingest
+    BENIGN_SAMPLE_CAP: int = 20000     # keep at most this many newest benign samples
+
     # Pydantic Config
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

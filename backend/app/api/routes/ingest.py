@@ -10,6 +10,7 @@ sensor can keep its own local log of everything classified.
 """
 from __future__ import annotations
 
+import random
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from threading import Lock
@@ -17,9 +18,10 @@ from threading import Lock
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.rate_limiter import limiter
 from app.db.database import get_db
-from app.db.models import Sensor
+from app.db.models import Sensor, TrainingSample
 from app.schemas.schemas import IngestFlowResult, IngestRequest, IngestResponse
 from app.services.analysis_service import network_engine
 from app.services.log_service import LogService
@@ -67,6 +69,34 @@ def _should_log(sensor_id: int, src_ip: str | None, raw_class: str) -> bool:
         return True
 
 
+def _maybe_sample_benign(db: Session, features: dict) -> None:
+    """Persist a small random sample of benign flows for retraining.
+
+    Benign is never written to detection_logs, so without this the retrain
+    set has no benign coverage. Strips '_'-prefixed keys (src/dst IP) so the
+    stored row is a clean feature dict, and opportunistically prunes back to
+    BENIGN_SAMPLE_CAP newest rows so the table can't grow unbounded.
+    """
+    if random.random() >= settings.BENIGN_SAMPLE_RATE:
+        return
+    clean = {k: v for k, v in features.items() if not k.startswith("_")}
+    db.add(TrainingSample(label="Benign", source="benign_auto", features=clean))
+    db.commit()
+    if random.random() < 0.01:
+        stale_ids = [
+            r.id for r in db.query(TrainingSample.id)
+            .filter(TrainingSample.label == "Benign")
+            .order_by(TrainingSample.created_at.desc())
+            .offset(settings.BENIGN_SAMPLE_CAP)
+            .all()
+        ]
+        if stale_ids:
+            db.query(TrainingSample).filter(
+                TrainingSample.id.in_(stale_ids)
+            ).delete(synchronize_session=False)
+            db.commit()
+
+
 @router.post("/flow", response_model=IngestResponse)
 @limiter.limit("120/minute")
 def ingest_flow(
@@ -97,7 +127,9 @@ def ingest_flow(
 
         # Persist only non-Benign flows. On a real network most flows are
         # benign and writing them all would balloon Postgres for no signal.
+        # We do keep a small random sample for retraining benign coverage.
         if raw_class == "Benign":
+            _maybe_sample_benign(db, features)
             continue
 
         # Dedup window: suppress repeat events from the same

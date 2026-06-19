@@ -114,3 +114,20 @@ class Sensor(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "name", name="uq_sensor_user_name"),
     )
+
+
+class TrainingSample(Base):
+    """Durably-stored flows for retraining.
+
+    Benign flows are never written to detection_logs (ingest drops them), so
+    without this table a retrain has no benign coverage. The ingest endpoint
+    persists a small random sample of benign flows here; retrain.py reads them
+    back alongside the base capture CSVs and analyst feedback.
+    """
+    __tablename__ = "training_samples"
+
+    id = Column(Integer, primary_key=True)
+    label = Column(String, nullable=False, index=True)
+    source = Column(String, nullable=False, default="benign_auto")
+    features = Column(JSONB, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
