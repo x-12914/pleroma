@@ -32,6 +32,16 @@ class Settings(BaseSettings):
     BENIGN_SAMPLE_RATE: float = 0.02   # fraction of benign flows persisted at ingest
     BENIGN_SAMPLE_CAP: int = 20000     # keep at most this many newest benign samples
 
+    # Network engine decision thresholds (tunable without code changes).
+    # NETWORK_ANOMALY_THRESHOLD: IsolationForest decision_function cutoff —
+    #   a flow scoring below this is flagged "Anomaly-novel" (→ Suspicious).
+    #   Make it more negative to flag fewer flows (see deploy/CAPTURE.md and
+    #   backend/anomaly_report.py to choose a value from real data).
+    # NETWORK_CONFIDENCE_THRESHOLD: below this top-class probability a
+    #   "Malicious" verdict is downgraded to "Suspicious".
+    NETWORK_ANOMALY_THRESHOLD: float = -0.05
+    NETWORK_CONFIDENCE_THRESHOLD: float = 0.60
+
     # Pydantic Config
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -1,8 +1,15 @@
 # Pleroma sensor agent
 
 A long-running daemon that captures network flows on a Linux host,
-extracts CIC-IDS2018-shaped statistical features, and ships them in
+extracts CIC-IDS-shaped statistical features, and ships them in
 batches to a pleroma backend for classification.
+
+It is a **self-contained Scapy flow tracker** — it does *not* wrap
+CICFlowMeter. The third-party `cicflowmeter` package sniffs fine on
+Python 3.14 but never flushes its CSV, so `agent.py` reimplements the 78
+CIC features directly on Scapy. Those 78 features are the contract the
+model is trained and served on; see
+[backend/app/services/network/README.md](../backend/app/services/network/README.md).
 
 ## Architecture
 
@@ -10,16 +17,14 @@ batches to a pleroma backend for classification.
        network NIC (eth0/wlan0/…)
                 │  raw packets
                 ▼
-     cicflowmeter (subprocess)        flow grouping + 78-feature extraction
-                │  CSV rows
-                ▼
-       agent.py (this directory)      batching + retry + ship
+     agent.py — Scapy sniff           flow grouping + 78-feature extraction
+     (this directory)                 (Flow.to_features) + batching + retry
                 │  HTTPS POST + X-Sensor-Key
                 ▼
-   /api/v1/ingest/flow  →  RandomForest  →  DetectionLog (only non-Benign)
-                                              │
+   /api/v1/ingest/flow  →  heuristics → IsolationForest → RandomForest
+                                              │  (only non-Benign persisted)
                                               ▼
-                                       dashboard / logs page
+                                       DetectionLog → dashboard / logs page
 ```
 
 ## Install
@@ -46,7 +51,7 @@ sudo journalctl -u pleroma-sensor -f
 The installer:
 
 - Installs system deps (`python3-venv`, `python3-pip`, `tcpdump`, `libpcap`)
-- Creates an isolated venv at `/opt/pleroma-sensor/.venv` and pip-installs `cicflowmeter` + `requests`
+- Creates an isolated venv at `/opt/pleroma-sensor/.venv` and pip-installs `scapy` + `requests`
 - Copies `agent.py` to `/opt/pleroma-sensor/`
 - Writes a launcher shim to `/usr/local/bin/pleroma-sensor`
 - Prompts for server URL, network interface, and API key

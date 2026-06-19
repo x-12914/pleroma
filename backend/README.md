@@ -1,6 +1,20 @@
-# 🛡️ AICDS – AI Cybersecurity & Threat Detection System
+# Pleroma backend (AICDS)
 
-An AI-assisted cybersecurity system designed to detect, analyze, and respond to modern cyber threats using a hybrid approach combining rule-based detection and machine learning.
+FastAPI backend for an AI-driven network intrusion detection system plus an
+LLM-powered URL threat scanner.
+
+- **Network detection**: a Scapy sensor ships 78-feature flows to
+  `/api/v1/ingest/flow`, where a RandomForest + IsolationForest classifies them.
+  The model is trained and served on the sensor's own features. Authoritative
+  reference: [app/services/network/README.md](app/services/network/README.md).
+  Capture + retrain runbook: [../deploy/CAPTURE.md](../deploy/CAPTURE.md).
+- **URL scanner**: OSINT + scrape + RAG + an LLM verdict (`/api/v1/analysis/url`).
+- **Auth/RBAC**: JWT login; roles `viewer` < `analyst` < `admin`.
+
+> ⚠️ The sections below the architecture diagram are partly **historical** (Render
+> deployment, an older rule-based framing). The live deploy is a single VPS with
+> nginx + systemd — see [../deploy/DEPLOY.md](../deploy/DEPLOY.md). The accurate
+> model docs are linked above.
 
 ---
 
@@ -235,8 +249,9 @@ The project includes a `render.yaml` file for Infrastructure as Code (IaC) deplo
 
 ## 📌 Status
 
-🚧 Actively under development
-This project is continuously being improved with new detection capabilities and optimizations.
+Live on a single VPS (nginx + systemd + uvicorn). Network model trained on
+Scapy-captured flows; retrained via `app/services/network/retrain.py`. See the
+[network model README](app/services/network/README.md) for the current design.
 
 ---
 
