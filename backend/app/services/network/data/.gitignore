@@ -1,0 +1,9 @@
+# Model artifacts live on the server, never in git.
+#
+# These are produced by retrain (retrain.py) and are environment-specific.
+# Committing them once shipped a stale NSL-KDD model that bricked detection
+# when restored over the live one — see ../README.md ("History: the mixup").
+# Keep the directory, ignore everything in it.
+*
+!.gitignore
+!.gitkeep
