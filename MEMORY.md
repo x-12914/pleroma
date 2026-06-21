@@ -31,6 +31,7 @@ reference/demo/dev deployment.
 - ✅ Expanded `deploy/CAPTURE.md` into full capture+retrain runbook (commit a1cb8f8)
 - ✅ Direct VPS access wired up — SSH key login + scoped passwordless sudo (systemctl/journalctl) (2026-06-21)
 - ✅ Phase 1 Step 0 — deployed safe pipeline to live VPS (now on `fix/safe-retrain-pipeline`, model backed up + preserved, engine real mode, `training_samples` table created, configurable thresholds live) (2026-06-21)
+- ✅ Tier A lab-capture harness built — [lab/](lab/) (`capture.sh` VPS-side root capture w/ attacker-IP filter for clean labels, `filter_by_ip.py`, `attacks/*.sh`: portscan/web-brute/ssh-brute/slowloris/slowhttptest/hulk/syn-flood). Execution pending: needs an attacker host (separate Linux IP) + sudoers widened for the sensor python. New classes also need a `VERDICT_MAPPING` entry in engine.py. (2026-06-21)
 
 ## In Progress
 - 🔄 Product strategy locked — see [ROADMAP.md](ROADMAP.md): hybrid (cloud control plane + local data plane), 5-phase program, parallel build-agent workstreams. Architecture tension to confirm: pure SaaS vs hybrid (raw data local) — proceeding on hybrid.
