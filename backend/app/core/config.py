@@ -26,7 +26,33 @@ class Settings(BaseSettings):
 
     # CORS Allowed Origins
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000,https://localhost:5173,https://localhost:3000"
-    
+
+    # Network model retraining
+    NETWORK_BASE_DATASET_DIR: str = "/opt/pleroma/ml/data/base"  # base capture CSVs
+    BENIGN_SAMPLE_RATE: float = 0.02   # fraction of benign flows persisted at ingest
+    BENIGN_SAMPLE_CAP: int = 20000     # keep at most this many newest benign samples
+
+    # Network engine decision thresholds (tunable without code changes).
+    # NETWORK_ANOMALY_THRESHOLD: IsolationForest decision_function cutoff —
+    #   a flow scoring below this is flagged "Anomaly-novel" (→ Suspicious).
+    #   Make it more negative to flag fewer flows (see deploy/CAPTURE.md and
+    #   backend/anomaly_report.py to choose a value from real data).
+    # NETWORK_CONFIDENCE_THRESHOLD: below this top-class probability a
+    #   "Malicious" verdict is downgraded to "Suspicious".
+    NETWORK_ANOMALY_THRESHOLD: float = -0.05
+    NETWORK_CONFIDENCE_THRESHOLD: float = 0.60
+
+    # --- Autonomous response (Phase 2) — see docs/CONTRACTS.md ---
+    # Safe-by-default: ships in dry_run; only an explicit operator action moves
+    # the system to recommend/auto.
+    RESPONSE_DEFAULT_MODE: str = "dry_run"           # off|dry_run|recommend|auto
+    RESPONSE_ENFORCEMENT_ADAPTER: str = "dryrun"     # dryrun|nftables|iptables|firewalld|cloud
+    RESPONSE_RECONCILE_INTERVAL_SECONDS: int = 10
+    RESPONSE_DEFAULT_BLOCK_TTL_SECONDS: int = 3600
+    # Comma-separated CIDRs that must never be acted on (seeded into the allowlist
+    # at startup, alongside loopback). Set to the operator's admin/SSH source range.
+    RESPONSE_ADMIN_ALLOWLIST: str = ""
+
     # Pydantic Config
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

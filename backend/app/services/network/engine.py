@@ -41,13 +41,18 @@ VERDICT_MAPPING: dict[str, str] = {
 
 # Below this top-class probability, downgrade "Malicious" → "Suspicious"
 # so low-confidence predictions don't trigger block-tier alerts.
-CONFIDENCE_THRESHOLD = 0.60
+# Tunable via NETWORK_CONFIDENCE_THRESHOLD in the environment.
+CONFIDENCE_THRESHOLD = settings.NETWORK_CONFIDENCE_THRESHOLD
 
 # IsolationForest decision_function threshold. The forest returns >0 for
-# in-distribution samples, <0 for outliers. We require a strongly
-# negative score before declaring "novel" — anything in [-0.05, 0] is
-# borderline (training tail) and gets passed to the model normally.
-ANOMALY_THRESHOLD = -0.05
+# in-distribution samples, <0 for outliers. A flow scoring below this is
+# flagged "Anomaly-novel" (→ Suspicious). If the model was trained on
+# traffic unlike production, most live flows score negative and flood the
+# dashboard with Suspicious — make this more negative to flag fewer, or
+# retrain on representative benign traffic (see deploy/CAPTURE.md).
+# Tunable via NETWORK_ANOMALY_THRESHOLD; backend/anomaly_report.py helps
+# pick a value from real data.
+ANOMALY_THRESHOLD = settings.NETWORK_ANOMALY_THRESHOLD
 
 
 def _normalize_key(k: str) -> str:

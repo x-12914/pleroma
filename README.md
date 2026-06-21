@@ -5,26 +5,33 @@ LLM-powered URL threat scanner.
 
 ## Status
 
-Under active redevelopment. The classifier is being migrated from NSL-KDD to
-CIC-IDS2017, and a real packet-capture sensor is being built to replace the
-original prototype's manual feature-entry UI.
+Live. The network classifier is a RandomForest + IsolationForest trained on
+**flows captured by our own Scapy sensor** (78 CIC-IDS-shaped features). The
+NSL-KDD prototype and the public CIC-IDS datasets are no longer used to train
+the live model — see
+[backend/app/services/network/README.md](backend/app/services/network/README.md)
+for the authoritative model reference and the history of why.
 
 ## Layout
 
 - `backend/` — FastAPI server: REST API, ML inference, database access, URL
-  scanner.
+  scanner. Network model docs:
+  [app/services/network/README.md](backend/app/services/network/README.md).
 - `frontend/` — React + Vite SPA: dashboard, sensor management, logs.
-- `sensor/` — sensor agent (CICFlowMeter wrapper + ship-to-server). Populated
-  in Phase 4.
-- `ml/` — model training scripts and notebooks. Populated in Phase 2.
+- `sensor/` — sensor agent: a self-contained **Scapy** flow tracker that
+  extracts 78 features and ships them to `/ingest/flow` (no CICFlowMeter).
+- `ml/` — offline data-prep / training scripts (historical CIC pipeline). The
+  live retrain path is `backend/app/services/network/retrain.py`; the capture +
+  retrain runbook is [deploy/CAPTURE.md](deploy/CAPTURE.md).
 
 ## Deploy target
 
-Single VPS (no Docker). Caddy serves the built frontend and reverse-proxies
-the API. Sensors live elsewhere (e.g. a laptop on a home network) and ship
-flow records to the VPS over HTTPS.
+Single VPS (no Docker). nginx serves the built frontend and reverse-proxies the
+API to uvicorn on `127.0.0.1:8000` (see [deploy/](deploy/)). A sensor runs on
+the VPS (and/or elsewhere) and ships flow records to `/api/v1/ingest/flow` over
+HTTPS with an `X-Sensor-Key`.
 
 ## Local development
 
-Each subdirectory has its own setup; see per-directory READMEs once those
-land in their respective phases.
+Each subdirectory has its own README. Start with [backend/README.md](backend/README.md)
+and [sensor/README.md](sensor/README.md); deployment is in [deploy/DEPLOY.md](deploy/DEPLOY.md).

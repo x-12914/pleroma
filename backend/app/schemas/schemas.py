@@ -129,3 +129,116 @@ class IngestResponse(BaseModel):
     processed: int
     logged: int   # how many flows produced a DetectionLog (non-Benign)
     results: list[IngestFlowResult]
+
+
+# --- AUTONOMOUS RESPONSE SCHEMAS (Phase 2, CONTRACTS.md §5) ---
+# Pydantic v2; *Out models read straight off the SQLAlchemy rows via
+# from_attributes. Enum validation (mode/action against Mode.ALL/ActionType.ALL)
+# is done in the router so error messages match the contract wording.
+
+class StateOut(BaseModel):
+    id: int
+    mode: str
+    kill_switch: bool
+    updated_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class StateUpdate(BaseModel):
+    """Body for PUT /response/state."""
+    mode: str
+    kill_switch: bool = False
+
+
+class AllowlistOut(BaseModel):
+    id: int
+    cidr: str
+    reason: Optional[str] = None
+    created_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AllowlistCreate(BaseModel):
+    cidr: str
+    reason: Optional[str] = None
+
+
+class PolicyRuleOut(BaseModel):
+    id: int
+    name: str
+    enabled: bool
+    priority: int
+    match_raw_class: Optional[str] = None
+    match_verdict: Optional[str] = None
+    min_confidence: float
+    min_repeats: int
+    window_seconds: int
+    action: str
+    action_params: Optional[dict] = None
+    mode_override: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class PolicyRuleCreate(BaseModel):
+    """Body for POST /response/policy. Defaults mirror the model columns."""
+    name: str
+    enabled: bool = True
+    priority: int = 100
+    match_raw_class: Optional[str] = None
+    match_verdict: Optional[str] = None
+    min_confidence: float = 0.0
+    min_repeats: int = 1
+    window_seconds: int = 600
+    action: str
+    action_params: Optional[dict] = None
+    mode_override: Optional[str] = None
+
+
+class PolicyRuleUpdate(BaseModel):
+    """Body for PUT /response/policy/{id}. All fields optional — only the
+    ones supplied (exclude_unset) are patched."""
+    name: Optional[str] = None
+    enabled: Optional[bool] = None
+    priority: Optional[int] = None
+    match_raw_class: Optional[str] = None
+    match_verdict: Optional[str] = None
+    min_confidence: Optional[float] = None
+    min_repeats: Optional[int] = None
+    window_seconds: Optional[int] = None
+    action: Optional[str] = None
+    action_params: Optional[dict] = None
+    mode_override: Optional[str] = None
+
+
+class ResponseActionOut(BaseModel):
+    id: int
+    ts: Optional[datetime] = None
+    src_ip: Optional[str] = None
+    action_type: str
+    params: Optional[dict] = None
+    reason: Optional[str] = None
+    raw_class: Optional[str] = None
+    confidence: Optional[float] = None
+    triggering_log_id: Optional[int] = None
+    policy_rule_id: Optional[int] = None
+    mode: str
+    status: str
+    expires_at: Optional[datetime] = None
+    created_by: Optional[str] = None
+    applied_at: Optional[datetime] = None
+    reverted_at: Optional[datetime] = None
+    error: Optional[str] = None
+    audit: Optional[dict] = None
+
+    class Config:
+        from_attributes = True

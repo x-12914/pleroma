@@ -1,0 +1,49 @@
+# Pleroma enforcement reconciler.
+#
+# This unit is SEPARATE from pleroma-backend.service on purpose.
+#   - pleroma-backend runs as the unprivileged `opt` user and ONLY writes
+#     response_actions rows to the DB. It never touches the firewall.
+#   - THIS unit is the only component that mutates real enforcement state, so it
+#     is the only one that needs root: it shells out to `nft` (CAP_NET_ADMIN) to
+#     add/remove blocks. Keeping firewall power isolated to this one root service
+#     limits the blast radius of the web app.
+#
+# It reconciles the DB's intent against the live firewall every
+# RESPONSE_RECONCILE_INTERVAL_SECONDS (see backend/app/core/config.py): applying
+# active actions, expiring past-TTL ones, tearing down reverted ones, and
+# removing drift (firewall entries with no backing row).
+#
+# With RESPONSE_ENFORCEMENT_ADAPTER=dryrun (the default) this service is
+# completely inert — it only logs what it WOULD do — so it is safe to enable
+# before the operator opts into real enforcement.
+
+[Unit]
+Description=Pleroma enforcement reconciler (root; applies firewall actions)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Root is required so `nft` can modify the inet pleroma table/set. The hardening
+# below stays as tight as nftables management allows.
+User=root
+WorkingDirectory=/opt/pleroma/backend
+# Reuse the backend's .env so DATABASE_URL and RESPONSE_* settings match exactly.
+EnvironmentFile=/opt/pleroma/backend/.env
+ExecStart=/opt/pleroma/.venv/bin/python -m app.services.response.reconciler
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Hardening — note we CANNOT use NoNewPrivileges/ProtectSystem as strictly as
+# the backend because we need CAP_NET_ADMIN to drive nftables.
+AmbientCapabilities=CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN
+PrivateTmp=true
+ProtectHome=read-only
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target

@@ -10,6 +10,7 @@ sensor can keep its own local log of everything classified.
 """
 from __future__ import annotations
 
+import random
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from threading import Lock
@@ -17,13 +18,20 @@ from threading import Lock
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.rate_limiter import limiter
 from app.db.database import get_db
-from app.db.models import Sensor
+from app.db.models import Sensor, TrainingSample
 from app.schemas.schemas import IngestFlowResult, IngestRequest, IngestResponse
 from app.services.analysis_service import network_engine
 from app.services.log_service import LogService
+from app.services.response import policy, service as response_service
+from app.services.response.types import DetectionEvent
 from app.utils.dependencies import get_current_sensor
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ingest", tags=["Ingest"])
 
@@ -67,6 +75,34 @@ def _should_log(sensor_id: int, src_ip: str | None, raw_class: str) -> bool:
         return True
 
 
+def _maybe_sample_benign(db: Session, features: dict) -> None:
+    """Persist a small random sample of benign flows for retraining.
+
+    Benign is never written to detection_logs, so without this the retrain
+    set has no benign coverage. Strips '_'-prefixed keys (src/dst IP) so the
+    stored row is a clean feature dict, and opportunistically prunes back to
+    BENIGN_SAMPLE_CAP newest rows so the table can't grow unbounded.
+    """
+    if random.random() >= settings.BENIGN_SAMPLE_RATE:
+        return
+    clean = {k: v for k, v in features.items() if not k.startswith("_")}
+    db.add(TrainingSample(label="Benign", source="benign_auto", features=clean))
+    db.commit()
+    if random.random() < 0.01:
+        stale_ids = [
+            r.id for r in db.query(TrainingSample.id)
+            .filter(TrainingSample.label == "Benign")
+            .order_by(TrainingSample.created_at.desc())
+            .offset(settings.BENIGN_SAMPLE_CAP)
+            .all()
+        ]
+        if stale_ids:
+            db.query(TrainingSample).filter(
+                TrainingSample.id.in_(stale_ids)
+            ).delete(synchronize_session=False)
+            db.commit()
+
+
 @router.post("/flow", response_model=IngestResponse)
 @limiter.limit("120/minute")
 def ingest_flow(
@@ -97,7 +133,9 @@ def ingest_flow(
 
         # Persist only non-Benign flows. On a real network most flows are
         # benign and writing them all would balloon Postgres for no signal.
+        # We do keep a small random sample for retraining benign coverage.
         if raw_class == "Benign":
+            _maybe_sample_benign(db, features)
             continue
 
         # Dedup window: suppress repeat events from the same
@@ -109,7 +147,7 @@ def ingest_flow(
         if not _should_log(sensor.id, src_ip, raw_class):
             continue
 
-        LogService.create_log(
+        db_log = LogService.create_log(
             db=db,
             user_id=sensor.user_id,
             category="NETWORK_TRAFFIC",
@@ -126,5 +164,29 @@ def ingest_flow(
             },
         )
         logged += 1
+
+        # Autonomous response hook (Phase 2). Only runs for flows that were
+        # actually logged (cheap: dedup already filtered the firehose). Feeds the
+        # detection through the policy engine and records the resulting decision
+        # (dry_run "would-have", pending recommendation, or active action) — the
+        # reconciler applies active ones separately. This MUST never break
+        # ingestion, so the whole thing is wrapped: any error is logged and
+        # swallowed, and the flow's verdict is still returned to the sensor.
+        try:
+            event = DetectionEvent(
+                src_ip=src_ip,
+                raw_class=raw_class,
+                verdict=verdict,
+                confidence=float(confidence),
+                ts=datetime.now(timezone.utc),
+                sensor_id=sensor.id,
+                dst_port=int(features.get("Dst Port", 0) or 0),
+                triggering_log_id=db_log.id,
+            )
+            decision = policy.decide(event, db)
+            if decision is not None:
+                response_service.record_decision(db, event, decision)
+        except Exception as exc:  # noqa: BLE001 — response must never break ingest
+            logger.warning("Response decision failed for log %s: %s", db_log.id, exc)
 
     return IngestResponse(processed=processed, logged=logged, results=results)
