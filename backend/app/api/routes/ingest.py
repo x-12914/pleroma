@@ -25,7 +25,13 @@ from app.db.models import Sensor, TrainingSample
 from app.schemas.schemas import IngestFlowResult, IngestRequest, IngestResponse
 from app.services.analysis_service import network_engine
 from app.services.log_service import LogService
+from app.services.response import policy, service as response_service
+from app.services.response.types import DetectionEvent
 from app.utils.dependencies import get_current_sensor
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/ingest", tags=["Ingest"])
 
@@ -141,7 +147,7 @@ def ingest_flow(
         if not _should_log(sensor.id, src_ip, raw_class):
             continue
 
-        LogService.create_log(
+        db_log = LogService.create_log(
             db=db,
             user_id=sensor.user_id,
             category="NETWORK_TRAFFIC",
@@ -158,5 +164,29 @@ def ingest_flow(
             },
         )
         logged += 1
+
+        # Autonomous response hook (Phase 2). Only runs for flows that were
+        # actually logged (cheap: dedup already filtered the firehose). Feeds the
+        # detection through the policy engine and records the resulting decision
+        # (dry_run "would-have", pending recommendation, or active action) — the
+        # reconciler applies active ones separately. This MUST never break
+        # ingestion, so the whole thing is wrapped: any error is logged and
+        # swallowed, and the flow's verdict is still returned to the sensor.
+        try:
+            event = DetectionEvent(
+                src_ip=src_ip,
+                raw_class=raw_class,
+                verdict=verdict,
+                confidence=float(confidence),
+                ts=datetime.now(timezone.utc),
+                sensor_id=sensor.id,
+                dst_port=int(features.get("Dst Port", 0) or 0),
+                triggering_log_id=db_log.id,
+            )
+            decision = policy.decide(event, db)
+            if decision is not None:
+                response_service.record_decision(db, event, decision)
+        except Exception as exc:  # noqa: BLE001 — response must never break ingest
+            logger.warning("Response decision failed for log %s: %s", db_log.id, exc)
 
     return IngestResponse(processed=processed, logged=logged, results=results)

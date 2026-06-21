@@ -96,4 +96,96 @@ export const authService = {
   getMe: () => api.get('/me'), // Matches the @app.get("/me") in main.py
 };
 
+// 8. Autonomous Response Endpoints (Phase 2 — see docs/CONTRACTS.md §5)
+// Admin-gated mutations, analyst+ reads. All under /api/v1/response.
+
+export type ResponseMode = 'off' | 'dry_run' | 'recommend' | 'auto';
+
+export type ActionType = 'block' | 'throttle' | 'alert' | 'host';
+
+export type ActionStatus =
+  | 'would_apply'
+  | 'pending'
+  | 'active'
+  | 'expired'
+  | 'reverted'
+  | 'rejected'
+  | 'failed';
+
+export interface EnforcementState {
+  mode: ResponseMode;
+  kill_switch: boolean;
+  updated_at?: string;
+  updated_by?: string;
+}
+
+export interface AllowlistEntry {
+  id: number;
+  cidr: string;
+  reason: string;
+  created_by?: string;
+  created_at?: string;
+}
+
+export interface PolicyRule {
+  id: number;
+  name: string;
+  enabled: boolean;
+  priority?: number;
+  match_raw_class?: string | null;
+  match_verdict?: string | null;
+  min_confidence?: number;
+  min_repeats?: number;
+  window_seconds?: number;
+  action: ActionType;
+  action_params?: Record<string, unknown>;
+  mode_override?: ResponseMode | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ResponseAction {
+  id: number;
+  ts: string;
+  src_ip: string | null;
+  action_type: ActionType;
+  raw_class: string | null;
+  confidence: number | null;
+  reason: string | null;
+  mode: string;
+  status: ActionStatus;
+  expires_at: string | null;
+  created_by: string | null;
+}
+
+export const responseService = {
+  // Enforcement state (mode + kill switch)
+  getState: () => api.get<EnforcementState>('/response/state'),
+  updateState: (payload: { mode: ResponseMode; kill_switch: boolean }) =>
+    api.put<EnforcementState>('/response/state', payload),
+
+  // Allowlist — IPs/CIDRs never acted on
+  getAllowlist: () => api.get<AllowlistEntry[]>('/response/allowlist'),
+  addAllowlist: (payload: { cidr: string; reason: string }) =>
+    api.post<AllowlistEntry>('/response/allowlist', payload),
+  removeAllowlist: (id: number) => api.delete(`/response/allowlist/${id}`),
+
+  // Policy rules
+  getPolicy: () => api.get<PolicyRule[]>('/response/policy'),
+  createPolicy: (payload: Partial<PolicyRule>) =>
+    api.post<PolicyRule>('/response/policy', payload),
+  updatePolicy: (id: number, payload: Partial<PolicyRule>) =>
+    api.put<PolicyRule>(`/response/policy/${id}`, payload),
+  removePolicy: (id: number) => api.delete(`/response/policy/${id}`),
+
+  // Actions — audit + work queue
+  getActions: (status?: ActionStatus) =>
+    api.get<ResponseAction[]>('/response/actions', {
+      params: status ? { status } : undefined,
+    }),
+  approveAction: (id: number) => api.post(`/response/actions/${id}/approve`),
+  rejectAction: (id: number) => api.post(`/response/actions/${id}/reject`),
+  revertAction: (id: number) => api.post(`/response/actions/${id}/revert`),
+};
+
 export default api;

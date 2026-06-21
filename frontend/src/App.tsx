@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import UrlScan from './pages/UrlScan';
 import Sensors from './pages/Sensors';
 import Logs from './pages/Logs';
+import Response from './pages/Response';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import NotFound from './pages/NotFound';
@@ -53,6 +54,10 @@ function App() {
           <Route
             path="/logs"
             element={<PrivateRoute><AppShell><Logs /></AppShell></PrivateRoute>}
+          />
+          <Route
+            path="/response"
+            element={<PrivateRoute><AppShell><Response /></AppShell></PrivateRoute>}
           />
 
           {/* Real 404 — no silent redirect to / */}

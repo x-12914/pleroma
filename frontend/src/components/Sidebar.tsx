@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, FileText, Globe, Radio, Menu, X, Loader2 } from 'lucide-react';
+import { LayoutDashboard, FileText, Globe, Radio, ShieldAlert, Menu, X, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import type { Role } from '../context/AuthContext';
@@ -26,6 +26,7 @@ const menu: MenuItem[] = [
   { path: '/url-scan', icon: Globe,           label: 'URL scan',    minRole: 'analyst' },
   { path: '/sensors',  icon: Radio,           label: 'Sensors',     minRole: 'analyst' },
   { path: '/logs',     icon: FileText,        label: 'Detections',  minRole: 'viewer'  },
+  { path: '/response', icon: ShieldAlert,     label: 'Response',    minRole: 'analyst' },
 ];
 
 export default function Sidebar() {

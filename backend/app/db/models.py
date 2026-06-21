@@ -131,3 +131,92 @@ class TrainingSample(Base):
     source = Column(String, nullable=False, default="benign_auto")
     features = Column(JSONB, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+# ---------------------------------------------------------------------------
+# Autonomous response (Phase 2). See docs/CONTRACTS.md for the full spec.
+# Safe-by-default: the system ships in dry_run and only an explicit operator
+# action moves it to recommend/auto.
+# ---------------------------------------------------------------------------
+
+class EnforcementState(Base):
+    """Singleton (one row) global switch for the response system.
+
+    mode: off | dry_run | recommend | auto. kill_switch forces OFF regardless
+    of mode. Starts in dry_run.
+    """
+    __tablename__ = "enforcement_state"
+
+    id = Column(Integer, primary_key=True)
+    mode = Column(String, nullable=False, default="dry_run")
+    kill_switch = Column(Boolean, nullable=False, default=False)
+    updated_by = Column(String, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Allowlist(Base):
+    """IPs / CIDRs that must never be acted on by the response system.
+
+    Enforced in BOTH the policy engine (fail fast) and the enforcement adapter
+    (fail safe). Seeded at startup with loopback + RESPONSE_ADMIN_ALLOWLIST.
+    """
+    __tablename__ = "allowlist"
+
+    id = Column(Integer, primary_key=True)
+    cidr = Column(String, nullable=False, unique=True, index=True)
+    reason = Column(String, nullable=True)
+    created_by = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class PolicyRule(Base):
+    """A (match -> action) rule. Lower `priority` is evaluated first; the first
+    matching enabled rule wins. NULL match_* fields are wildcards."""
+    __tablename__ = "policy_rules"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)
+    enabled = Column(Boolean, nullable=False, default=True)
+    priority = Column(Integer, nullable=False, default=100)
+
+    # match criteria (NULL = wildcard)
+    match_raw_class = Column(String, nullable=True)
+    match_verdict = Column(String, nullable=True)
+    min_confidence = Column(Float, nullable=False, default=0.0)
+    min_repeats = Column(Integer, nullable=False, default=1)
+    window_seconds = Column(Integer, nullable=False, default=600)
+
+    # action
+    action = Column(String, nullable=False)          # block|throttle|alert|host
+    action_params = Column(JSONB, nullable=True)      # {"ttl_seconds":3600,"rate":"10/s"}
+    mode_override = Column(String, nullable=True)     # off|dry_run|recommend|auto
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ResponseAction(Base):
+    """Every intended or taken response action — audit trail AND work queue for
+    the reconciler. Status: would_apply|pending|active|expired|reverted|rejected|failed."""
+    __tablename__ = "response_actions"
+
+    id = Column(Integer, primary_key=True)
+    ts = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    src_ip = Column(String, nullable=True, index=True)
+    action_type = Column(String, nullable=False)     # block|throttle|alert|host
+    params = Column(JSONB, nullable=True)
+    reason = Column(String, nullable=True)
+    raw_class = Column(String, nullable=True)
+    confidence = Column(Float, nullable=True)
+
+    triggering_log_id = Column(Integer, ForeignKey("detection_logs.id"), nullable=True)
+    policy_rule_id = Column(Integer, ForeignKey("policy_rules.id"), nullable=True)
+
+    mode = Column(String, nullable=False)            # dry_run|auto|manual
+    status = Column(String, nullable=False, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    created_by = Column(String, nullable=True)       # auto | analyst:<email>
+    applied_at = Column(DateTime(timezone=True), nullable=True)
+    reverted_at = Column(DateTime(timezone=True), nullable=True)
+    error = Column(String, nullable=True)
+    audit = Column(JSONB, nullable=True)

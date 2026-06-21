@@ -44,6 +44,19 @@ def init_db():
             )
         )
 
+    # Seed the autonomous-response singletons (enforcement_state, allowlist,
+    # default policy rules). Idempotent and non-fatal: a failure here must not
+    # stop the backend from booting.
+    try:
+        from app.services.response.bootstrap import bootstrap_response
+        db = SessionLocal()
+        try:
+            bootstrap_response(db)
+        finally:
+            db.close()
+    except Exception as exc:
+        print(f"Warning: response bootstrap skipped: {exc}")
+
 
 def get_db():
     db = SessionLocal()
