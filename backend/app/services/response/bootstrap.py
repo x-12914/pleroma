@@ -17,8 +17,18 @@ _DEFAULT_ALLOWLIST = [
 ]
 
 # Default policy rules. All harmless while the system is in dry_run (they only
-# produce would_apply audit rows). The scan-probe rules require many repeats in
-# a window so a single stray SYN never escalates — see docs/CONTRACTS.md.
+# produce would_apply audit rows).
+#
+# IMPORTANT tuning note (repeat_count vs dedup): policy.repeat_count() counts
+# detection_logs rows, but ingest dedups to ~1 row per (sensor, src_ip, raw_class)
+# per 10 min. So min_repeats effectively counts *distinct 10-min buckets* within
+# `window_seconds` — a rule with window <= 600 can never exceed a count of ~1.
+# Hence the scan rules use window_seconds=3600 (up to ~6 buckets/hr) with a low
+# min_repeats. Also note the live diagnostic: scan traffic is a long tail of
+# ~12.7k distinct IPs each hitting infrequently, so per-IP repeat-counting only
+# catches the *persistent* scanners. These seeds are a STARTING POINT to generate
+# dry-run data; tune them (or move to block-on-first-probe / subnet aggregation /
+# a dedicated counter table) from observed `response_actions` once deployed.
 _DEFAULT_POLICIES = [
     dict(name="Alert on Malicious verdicts", enabled=True, priority=100,
          match_raw_class=None, match_verdict="Malicious", min_confidence=0.0,
@@ -26,11 +36,11 @@ _DEFAULT_POLICIES = [
          mode_override=None),
     dict(name="Block repeat port scanners (ScanProbe)", enabled=True, priority=50,
          match_raw_class="ScanProbe-heuristic", match_verdict=None, min_confidence=0.0,
-         min_repeats=10, window_seconds=600, action="block",
+         min_repeats=2, window_seconds=3600, action="block",
          action_params={"ttl_seconds": 3600}, mode_override=None),
     dict(name="Block repeat PortScan", enabled=True, priority=50,
          match_raw_class="PortScan", match_verdict=None, min_confidence=0.0,
-         min_repeats=5, window_seconds=600, action="block",
+         min_repeats=2, window_seconds=3600, action="block",
          action_params={"ttl_seconds": 3600}, mode_override=None),
 ]
 
