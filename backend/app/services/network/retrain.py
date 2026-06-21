@@ -111,9 +111,55 @@ def _from_feedback(feats: list[str]):
     return X
 
 
+# Attack classes we trust enough to mine from detection_logs.raw_input as
+# (weakly-)labeled training data. These rows carry the sensor's own extracted
+# features (stored at ingest), so they're aligned to feature_names by
+# construction — this is the SAME pipeline, just an additional aligned source,
+# not a second trainer (see README "History: the mixup").
+#
+# Deliberately EXCLUDED:
+#   - "Brute Force -Web": historically ~5% precision; too noisy to train on.
+#     Recapture it as ground truth instead (CAPTURE.md) before re-adding.
+#   - "ScanProbe-heuristic" / "SlowHeaders-heuristic": rule tags, not model
+#     classes. "Anomaly-novel": IsolationForest tag, label unknown.
+#   - "Benign": never reliably present in detection_logs (ingest drops it);
+#     benign comes from training_samples instead.
+_MINEABLE_LOG_CLASSES = ("DoS attacks-Hulk", "PortScan")
+# Cap per class so the huge attack volume can't swamp the benign set (which the
+# anomaly layer needs to learn "normal"). Newest rows first.
+_MINE_PER_CLASS_CAP = 2000
+
+
+def _from_detection_logs(feats: list[str]) -> list[pd.DataFrame]:
+    frames: list[pd.DataFrame] = []
+    with SessionLocal() as db:
+        for cls in _MINEABLE_LOG_CLASSES:
+            rows = (
+                db.query(DetectionLog)
+                .filter(DetectionLog.category == "NETWORK_TRAFFIC")
+                .filter(DetectionLog.report_data["raw_class"].astext == cls)
+                .order_by(DetectionLog.timestamp.desc())
+                .limit(_MINE_PER_CLASS_CAP)
+                .all()
+            )
+            recs = [
+                (r.report_data or {}).get("raw_input") or {}
+                for r in rows
+            ]
+            recs = [ri for ri in recs if ri]
+            if not recs:
+                continue
+            X = _align(pd.DataFrame(recs), feats)
+            X["Label"] = cls
+            frames.append(X)
+    return frames
+
+
 def build_training_frame():
     feats = _feature_names()
     frames = list(_from_base_csvs(feats))
+    # Mined attack examples (DoS-Hulk / PortScan) from prior detections.
+    frames.extend(_from_detection_logs(feats))
     for loader in (_from_training_samples, _from_feedback):
         f = loader(feats)
         if f is not None and len(f):
