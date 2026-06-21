@@ -10,7 +10,7 @@ from app.schemas.schemas import UserCreate, UserOut, Token
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-@limiter.limit("5/minute")
+@limiter.limit("3/minute")
 def register(request: Request, user_in: UserCreate, db: Session = Depends(get_db)):
     # Check if user exists
     db_user = db.query(User).filter(User.email == user_in.email).first()
@@ -28,7 +28,10 @@ def register(request: Request, user_in: UserCreate, db: Session = Depends(get_db
     return new_user
 
 @router.post("/login", response_model=Token)
-@limiter.limit("10/minute")
+# NOTE: slowapi's in-memory store is per-worker, so with --workers 2 the
+# effective limit is ~2x this. Tuned low to compensate; for an exact,
+# worker-independent cap use nginx limit_req or a shared (Redis) store.
+@limiter.limit("5/minute")
 def login(request: Request, db: Session = Depends(get_db), form_data: OAuth2PasswordRequestForm = Depends()):
     user = db.query(User).filter(User.email == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
