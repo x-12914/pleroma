@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from app.db.database import get_db
+from app.db.models import DetectionLog
 from app.services.log_service import LogService
 from app.schemas.schemas import LogOut, DashboardStats, FeedbackRequest, FeedbackOut
 from app.utils.dependencies import get_current_user
@@ -28,13 +29,18 @@ async def create_log_feedback(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    try:
-        feedback = LogService.create_feedback(
-            db=db,
-            log_id=log_id,
-            feedback_data=feedback_in,
-            user_id=current_user.id,
-        )
-        return feedback
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    # IDOR guard: only allow feedback on a log the caller owns. Without this
+    # any authenticated user could write feedback against another user's logs
+    # (and a missing log leaked a 500 with the raw exception text).
+    log = db.query(DetectionLog).filter(DetectionLog.id == log_id).first()
+    if log is None:
+        raise HTTPException(status_code=404, detail="Log not found")
+    if log.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized for this log")
+
+    return LogService.create_feedback(
+        db=db,
+        log_id=log_id,
+        feedback_data=feedback_in,
+        user_id=current_user.id,
+    )

@@ -1,7 +1,9 @@
 ﻿import httpx
 import json
 import asyncio
-from urllib.parse import urlparse
+import ipaddress
+import socket
+from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 from app.core.config import settings
 from app.db.database import SessionLocal
@@ -30,6 +32,46 @@ def _is_whitelisted(url: str) -> bool:
     if any(host == s.lstrip(".") or host.endswith(s) for s in TRUSTED_SUFFIXES):
         return True
     return False
+
+
+def _safe_fetch_target(url: str) -> tuple[bool, str]:
+    """SSRF guard: only allow http(s) URLs that resolve to PUBLIC IPs.
+
+    The URL scanner fetches arbitrary user-supplied URLs. Without this an
+    attacker could point it at internal services or the cloud metadata endpoint
+    (169.254.169.254) — especially dangerous once this ships onto customer cloud
+    boxes. We resolve the host and reject if ANY resolved address is
+    private/loopback/link-local/reserved/multicast.
+
+    (Caveat: DNS-rebinding between this check and the actual connection is not
+    fully closed here; redirects are re-validated per hop in _scrape_url.)
+    """
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False, "unparseable URL"
+    if p.scheme not in ("http", "https"):
+        return False, f"blocked scheme {p.scheme!r}"
+    host = p.hostname
+    if not host:
+        return False, "no host in URL"
+    port = p.port or (443 if p.scheme == "https" else 80)
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except Exception as exc:
+        return False, f"DNS resolution failed: {exc}"
+    for info in infos:
+        ip = info[4][0]
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return False, f"unparseable resolved IP {ip!r}"
+        if (
+            addr.is_private or addr.is_loopback or addr.is_link_local
+            or addr.is_reserved or addr.is_multicast or addr.is_unspecified
+        ):
+            return False, f"host resolves to non-public IP {ip}"
+    return True, "ok"
 
 
 class IntelligenceEngine:
@@ -173,11 +215,31 @@ class IntelligenceEngine:
             except: return []
 
     async def _scrape_url(self, url: str):
+        # SSRF guard — re-validated on every redirect hop. We follow redirects
+        # MANUALLY (follow_redirects=False) so a 3xx to an internal address is
+        # caught before we ever fetch it.
+        headers = {"User-Agent": "Mozilla/5.0 (AICDS-Bot)"}
         try:
-            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-                resp = await client.get(url, headers={"User-Agent": "Mozilla/5.0 (AICDS-Bot)"})
-                soup = BeautifulSoup(resp.text, "html.parser")
-                for s in soup(["script", "style"]): s.decompose()
-                return {"text": soup.get_text()[:1500], "title": soup.title.string if soup.title else "N/A"}
+            current = url
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+                for _hop in range(4):  # original + up to 3 redirects
+                    ok, why = await asyncio.to_thread(_safe_fetch_target, current)
+                    if not ok:
+                        return {"error": f"Scrape blocked (SSRF guard): {why}"}
+                    resp = await client.get(current, headers=headers)
+                    if resp.status_code in (301, 302, 303, 307, 308):
+                        loc = resp.headers.get("location")
+                        if not loc:
+                            break
+                        current = urljoin(current, loc)
+                        continue
+                    soup = BeautifulSoup(resp.text, "html.parser")
+                    for s in soup(["script", "style"]):
+                        s.decompose()
+                    return {
+                        "text": soup.get_text()[:1500],
+                        "title": soup.title.string if soup.title else "N/A",
+                    }
+                return {"error": "Scrape failed: too many redirects"}
         except Exception as e:
             return {"error": f"Scrape failed: {str(e)}"}
