@@ -26,21 +26,26 @@ to flows whose source is the attacker, giving **clean single-class data**. Alway
 pass it.
 
 ## Prerequisites (once, on the VPS)
-The capture needs root (raw sockets) and to bounce the live sensor. Either run
-`capture.sh` under interactive `sudo`, or widen the passwordless sudoers
-(`/etc/sudoers.d/pleroma`) to add:
+`capture.sh` runs as the `opt` user (NOT `sudo bash`) and uses scoped passwordless
+sudo. The dump needs to pass env vars to the root agent, so the grant needs the
+**`SETENV:` tag**. In `/etc/sudoers.d/pleroma`:
 ```
-opt ALL=(ALL) NOPASSWD: /opt/pleroma-sensor/.venv/bin/python /opt/pleroma-sensor/agent.py
+opt ALL=(ALL) NOPASSWD: /usr/bin/systemctl, /usr/bin/journalctl
+opt ALL=(ALL) NOPASSWD: SETENV: /opt/pleroma-sensor/.venv/bin/python /opt/pleroma-sensor/agent.py
 ```
-(systemctl start/stop pleroma-sensor is already allowed.)
+> Without `SETENV:`, sudo refuses with "you are not allowed to set the following
+> environment variables" and the capture produces no rows.
 
-Attacker tools (install on the attacker host as needed):
-`nmap`, `hydra`, `slowhttptest`, `hping3` (+ `curl`, already present).
+Attacker tools by script:
+- `nmap` (portscan) + `curl` (web-brute, hulk) — often already present.
+- `hydra` (ssh-brute), `slowhttptest` (slow-DoS), `hping3` (syn-flood) — Linux only.
+- **`slowloris.py` / `goldeneye.py`** — pure Python, run anywhere (incl. Windows
+  Git Bash), so the slow/HTTP-flood DoS classes need no extra binaries.
 
 ## Usage — pair a capture window with an attack
-On the **VPS** start the capture (it runs for `--duration` then auto-stops):
+On the **VPS** (as `opt`) start the capture (runs for `--duration` then auto-stops):
 ```bash
-sudo bash lab/capture.sh --label "PortScan" --duration 90 --attacker-ip <ATTACKER_IP>
+bash lab/capture.sh --label "PortScan" --duration 90 --attacker-ip <ATTACKER_IP>
 ```
 Immediately on the **attacker host**, fire the matching generator:
 ```bash
@@ -60,9 +65,13 @@ dir. Repeat per class; each run adds a timestamped CSV (nothing is overwritten).
 | `attacks/dos-slowhttptest.sh` | `DoS attacks-SlowHTTPTest` | slowhttptest | medium |
 | `attacks/dos-hulk.sh` | `DoS attacks-Hulk` | curl flood | **high** (CONFIRM=yes) |
 | `attacks/flood-syn.sh` | `DoS-SYNFlood` | hping3 | **high** (CONFIRM=yes) |
+| `attacks/slowloris.py` | `DoS attacks-Slowloris` | pure Python | medium (--confirm) |
+| `attacks/goldeneye.py` | `DoS attacks-GoldenEye` | pure Python | **high** (--confirm) |
 
-UDP/ICMP floods, GoldenEye, and amplification follow the same pattern — copy a
-script and swap the generator. Keep label strings EXACT and consistent.
+The `.py` generators run anywhere with Python 3 (incl. Windows Git Bash), so the
+slow/HTTP-flood DoS classes need no Linux-only binaries. UDP/ICMP floods and
+amplification follow the same pattern — copy a script, swap the generator. Keep
+label strings EXACT and consistent.
 
 ## After capturing: wire new classes into the engine
 `retrain.py` will pick up the CSVs automatically. But a brand-new class (e.g.
