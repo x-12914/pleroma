@@ -160,6 +160,14 @@ def run_once(db, adapter: EnforcementAdapter) -> dict:
     # --- (d) DRIFT: firewall entries with no backing active row ----------
     # Recover from manual edits, a reconciler restart, or a box reboot. Anything
     # the firewall enforces that we have no ACTIVE+applied row for is removed.
+    #
+    # Flush first: the apply/expire/revert phases above mutate rows in-memory and
+    # SessionLocal uses autoflush=False, so without this the query below reads
+    # STALE state — a block applied earlier in THIS pass would look "unbacked" and
+    # get drift-removed immediately (then never re-applied, since the next pass
+    # sees applied_at set and skips it). Flushing makes those uncommitted
+    # applied_at updates visible to the query within this transaction.
+    db.flush()
     active_ips = {
         ip
         for (ip,) in db.query(ResponseAction.src_ip)
