@@ -94,6 +94,17 @@ class DashboardStats(BaseModel):
     clean_scans: int
 
 
+class ScanSourceOut(BaseModel):
+    """One row of the 'by source' aggregated view — a scan campaign per IP."""
+    src_ip: str
+    detections: int
+    classes: list[str]
+    ports: int
+    verdict: str
+    first_seen: datetime
+    last_seen: datetime
+
+
 # --- SENSOR SCHEMAS ---
 
 class SensorCreate(BaseModel):

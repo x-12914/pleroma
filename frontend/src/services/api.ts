@@ -47,6 +47,16 @@ api.interceptors.response.use(
 
 // 4. Analysis Endpoints
 
+export interface ScanSource {
+  src_ip: string;
+  detections: number;
+  classes: string[];
+  ports: number;
+  verdict: string;
+  first_seen: string;
+  last_seen: string;
+}
+
 export const analysisService = {
   // Start Analysis
   startUrlScan: (url: string) => api.post('/analysis/url/', { url }),
@@ -61,6 +71,10 @@ export const analysisService = {
   // We provide both names so Dashboard.tsx and Logs.tsx both work without errors
   getHistory: (limit = 10, offset = 0) => api.get(`/logs/?limit=${limit}&offset=${offset}`),
   getLogs: (limit = 10, offset = 0) => api.get(`/logs/?limit=${limit}&offset=${offset}`),
+
+  // Aggregated "by source" view — network detections grouped per source IP.
+  getScanSources: (hours = 24, limit = 100) =>
+    api.get<ScanSource[]>(`/logs/sources?hours=${hours}&limit=${limit}`),
   
   // Admin
   retrainModel: () => api.post('/analysis/network/retrain/'),

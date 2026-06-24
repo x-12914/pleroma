@@ -4,7 +4,7 @@ from typing import List
 from app.db.database import get_db
 from app.db.models import DetectionLog
 from app.services.log_service import LogService
-from app.schemas.schemas import LogOut, DashboardStats, FeedbackRequest, FeedbackOut
+from app.schemas.schemas import LogOut, DashboardStats, FeedbackRequest, FeedbackOut, ScanSourceOut
 from app.utils.dependencies import get_current_user
 
 router = APIRouter(prefix="/logs", tags=["Analysis Logs"])
@@ -21,6 +21,16 @@ def get_my_logs(
 @router.get("/stats", response_model=DashboardStats)
 def get_my_stats(current_user = Depends(get_current_user), db: Session = Depends(get_db)):
     return LogService.get_stats(db, user_id=current_user.id)
+
+@router.get("/sources", response_model=List[ScanSourceOut])
+def get_scan_sources(
+    hours: int = Query(24, ge=1, le=720),
+    limit: int = Query(100, ge=1, le=500),
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Network detections grouped by source IP (scan-campaign view), noisiest first."""
+    return LogService.get_scan_sources(db, user_id=current_user.id, hours=hours, limit=limit)
 
 @router.post("/{log_id}/feedback/", response_model=FeedbackOut)
 async def create_log_feedback(

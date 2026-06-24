@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Search, X, Download, Info, ChevronRight, ChevronLeft } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import { analysisService } from '../services/api';
+import { analysisService, type ScanSource } from '../services/api';
 import { LoadingSpinner, EmptyState } from '../components/LoadingState';
 import MetricCard from '../components/Card';
 import { getThreatInfo } from '../utils/threats';
@@ -48,6 +48,7 @@ export default function Logs() {
   const [isFeedbacking, setIsFeedbacking] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [page, setPage] = useState(0); // 0-indexed; page 0 is the newest
+  const [view, setView] = useState<'timeline' | 'sources'>('timeline');
 
   const fetchPage = useCallback(async (targetPage: number) => {
     setLoading(true);
@@ -166,6 +167,25 @@ export default function Logs() {
         />
       </div>
 
+      {/* View toggle — Timeline (raw rows) vs By source (aggregated campaigns) */}
+      <div className="flex items-center gap-1 bg-surface-card border border-surface-border rounded-soft p-0.5 w-fit">
+        {(['timeline', 'sources'] as const).map(v => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className={`px-3 py-1.5 text-xs rounded-soft transition-colors ${
+              view === v ? 'bg-surface-hover text-ink' : 'text-ink-muted hover:text-ink'
+            }`}
+          >
+            {v === 'timeline' ? 'Timeline' : 'By source'}
+          </button>
+        ))}
+      </div>
+
+      {view === 'sources' && <SourcesView />}
+
+      {view === 'timeline' && (
+      <>
       {/* Search */}
       <div className="relative">
         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-dim pointer-events-none" />
@@ -315,6 +335,8 @@ export default function Logs() {
           </table>
         )}
       </section>
+      </>
+      )}
 
       {/* Slide-over detail panel — replaces centered modal */}
       {selectedLog && (
@@ -525,6 +547,111 @@ function Stat({
         {value}
       </p>
     </div>
+  );
+}
+
+/* ============================================================
+   By-source aggregated view — collapses scanner noise into one
+   row per source IP (scan campaign). Reads /logs/sources.
+   ============================================================ */
+
+function SourcesView() {
+  const [sources, setSources] = useState<ScanSource[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [hours, setHours] = useState(24);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    analysisService
+      .getScanSources(hours, 200)
+      .then(res => { if (alive) setSources(res.data || []); })
+      .catch(() => toast.error('Could not load sources.'))
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [hours]);
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-2xs text-ink-subtle">
+          Network detections grouped by source IP — {sources.length} sources in the
+          selected window, noisiest first.
+        </p>
+        <select
+          value={hours}
+          onChange={e => setHours(Number(e.target.value))}
+          className="text-xs bg-surface-card border border-surface-border rounded-soft px-2 py-1 text-ink-muted focus:outline-none focus:border-accent-border"
+        >
+          <option value={1}>Last 1h</option>
+          <option value={24}>Last 24h</option>
+          <option value={168}>Last 7d</option>
+          <option value={720}>Last 30d</option>
+        </select>
+      </div>
+
+      <section className="bg-surface-card border border-surface-border rounded-card overflow-hidden">
+        {loading ? (
+          <div className="p-8"><LoadingSpinner /></div>
+        ) : sources.length === 0 ? (
+          <EmptyState
+            title="No sources yet."
+            description="Network detections grouped by origin will appear here once a sensor flags traffic."
+          />
+        ) : (
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-surface-border text-2xs uppercase tracking-micro text-ink-dim">
+                <th className="px-4 py-3 font-normal">Source IP</th>
+                <th className="px-4 py-3 font-normal text-right">Detections</th>
+                <th className="px-4 py-3 font-normal text-right">Ports hit</th>
+                <th className="px-4 py-3 font-normal">Threat types</th>
+                <th className="px-4 py-3 font-normal">Worst verdict</th>
+                <th className="px-4 py-3 font-normal">Last seen</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-surface-border">
+              {sources.map(s => {
+                const sev = s.verdict.toLowerCase();
+                const tone =
+                  sev === 'malicious'
+                    ? 'text-signal-danger'
+                    : sev === 'suspicious'
+                    ? 'text-signal-warning'
+                    : sev === 'normal' || sev === 'safe'
+                    ? 'text-signal-ok'
+                    : 'text-ink-muted';
+                return (
+                  <tr key={s.src_ip} className="hover:bg-surface-hover/30 transition-colors duration-150 ease-crisp">
+                    <td className="px-4 py-3 text-sm font-mono text-ink">{s.src_ip}</td>
+                    <td className="px-4 py-3 text-right text-sm text-ink-muted tabular">
+                      {s.detections.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm text-ink-muted tabular">{s.ports}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {s.classes.map(c => {
+                          const t = getThreatInfo(c);
+                          return (
+                            <span key={c} className="px-1.5 py-0.5 rounded-pill text-2xs bg-surface-hover text-ink-subtle">
+                              {t?.name ?? c}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </td>
+                    <td className={`px-4 py-3 text-sm font-medium ${tone}`}>{s.verdict}</td>
+                    <td className="px-4 py-3 text-xs text-ink-subtle tabular font-mono">
+                      {format(new Date(s.last_seen), 'MMM dd · HH:mm')}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </section>
+    </>
   );
 }
 
