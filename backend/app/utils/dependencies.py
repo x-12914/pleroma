@@ -12,6 +12,27 @@ from app.schemas.schemas import TokenData
 
 # If you are using /api/v1 prefix, it MUST be included here
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
+# Same scheme but non-fatal: returns None instead of 401 when no token is present.
+# Used by endpoints that behave differently for anonymous vs authenticated callers
+# (e.g. registration, which is admin-only unless open registration is enabled).
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login", auto_error=False)
+
+
+def get_optional_user(
+    token: Optional[str] = Depends(oauth2_scheme_optional),
+    db: Session = Depends(get_db),
+) -> Optional[User]:
+    """Resolve the caller if a valid token is present, else None (never raises)."""
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        email = payload.get("sub")
+    except JWTError:
+        return None
+    if not email:
+        return None
+    return db.query(User).filter(User.email == email).first()
 
 # 1. This function gets the logged-in user
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):

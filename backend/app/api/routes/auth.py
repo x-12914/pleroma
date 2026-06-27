@@ -1,17 +1,39 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import User
+from app.core.config import settings
 from app.core.rate_limiter import limiter
 from app.core.security import hash_password, verify_password, create_access_token
 from app.schemas.schemas import UserCreate, UserOut, Token
+from app.utils.dependencies import get_optional_user
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
+
+def _is_admin(user: Optional[User]) -> bool:
+    return user is not None and (getattr(user, "role", None) == "admin" or bool(user.is_admin))
+
+
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 @limiter.limit("3/minute")
-def register(request: Request, user_in: UserCreate, db: Session = Depends(get_db)):
+def register(
+    request: Request,
+    user_in: UserCreate,
+    db: Session = Depends(get_db),
+    creator: Optional[User] = Depends(get_optional_user),
+):
+    # Security: registration is admin-only unless explicitly opened. Without this,
+    # anyone on the internet could create an account on a customer's box.
+    if not settings.ALLOW_OPEN_REGISTRATION and not _is_admin(creator):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Registration is disabled. An administrator must create your account.",
+        )
+
     # Check if user exists
     db_user = db.query(User).filter(User.email == user_in.email).first()
     if db_user:

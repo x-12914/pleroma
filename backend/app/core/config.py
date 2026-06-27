@@ -10,6 +10,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     DEBUG: bool = False
 
+    # Security: self-registration is OFF by default — only an existing admin can
+    # create accounts (POST /auth/register with an admin token). Set True only for
+    # open/demo deployments. Bootstrap the first admin via reset_db.py / onboarding.
+    ALLOW_OPEN_REGISTRATION: bool = False
+
     # Standard AI Engine Keys
     GROQ_API_KEY: Optional[str] = None
     GROQ_API_URL: Optional[str] = "https://api.groq.com/openai/v1/chat/completions"
