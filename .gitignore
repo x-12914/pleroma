@@ -32,3 +32,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Sales/prospect research — local only, never ship in the product repo
+client findings/
