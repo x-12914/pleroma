@@ -1,7 +1,7 @@
 import hashlib
 from typing import Optional
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
@@ -35,12 +35,24 @@ def get_optional_user(
     return db.query(User).filter(User.email == email).first()
 
 # 1. This function gets the logged-in user
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+def _bearer_or_cookie_token(
+    request: Request,
+    bearer: Optional[str] = Depends(oauth2_scheme_optional),
+) -> Optional[str]:
+    """Prefer an Authorization: Bearer header, else the httpOnly auth cookie."""
+    if bearer:
+        return bearer
+    return request.cookies.get(settings.AUTH_COOKIE_NAME)
+
+
+def get_current_user(token: Optional[str] = Depends(_bearer_or_cookie_token), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    if not token:
+        raise credentials_exception
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         email: str = payload.get("sub")

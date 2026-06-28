@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from app.db.database import get_db
@@ -54,13 +54,32 @@ def register(
 # effective limit is ~2x this. Tuned low to compensate; for an exact,
 # worker-independent cap use nginx limit_req or a shared (Redis) store.
 @limiter.limit("5/minute")
-def login(request: Request, db: Session = Depends(get_db), form_data: OAuth2PasswordRequestForm = Depends()):
+def login(request: Request, response: Response, db: Session = Depends(get_db), form_data: OAuth2PasswordRequestForm = Depends()):
     user = db.query(User).filter(User.email == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
         )
-    
+
     access_token = create_access_token(data={"sub": user.email})
+    # Also set the token as an httpOnly cookie. JS can't read it (XSS-safe), and
+    # same-origin requests send it automatically. We still return the token in the
+    # body so existing header-based clients keep working during the migration.
+    response.set_cookie(
+        key=settings.AUTH_COOKIE_NAME,
+        value=access_token,
+        httponly=True,
+        secure=settings.AUTH_COOKIE_SECURE,
+        samesite=settings.AUTH_COOKIE_SAMESITE,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+    )
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/logout")
+def logout(response: Response):
+    """Clear the auth cookie (header-token clients just drop their own token)."""
+    response.delete_cookie(settings.AUTH_COOKIE_NAME, path="/")
+    return {"detail": "Logged out"}

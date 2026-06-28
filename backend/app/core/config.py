@@ -15,6 +15,13 @@ class Settings(BaseSettings):
     # open/demo deployments. Bootstrap the first admin via reset_db.py / onboarding.
     ALLOW_OPEN_REGISTRATION: bool = False
 
+    # httpOnly auth cookie — XSS-safe alternative to storing the JWT in localStorage.
+    # The backend issues this on login and accepts EITHER this cookie OR an
+    # Authorization: Bearer header (so the migration is non-breaking).
+    AUTH_COOKIE_NAME: str = "pleroma_token"
+    AUTH_COOKIE_SECURE: bool = True       # HTTPS-only (set False only for local http dev)
+    AUTH_COOKIE_SAMESITE: str = "lax"     # same-origin XHR sends it; blocks cross-site CSRF
+
     # Standard AI Engine Keys
     GROQ_API_KEY: Optional[str] = None
     GROQ_API_URL: Optional[str] = "https://api.groq.com/openai/v1/chat/completions"
