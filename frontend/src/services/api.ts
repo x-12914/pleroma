@@ -10,15 +10,14 @@ const API_ROOT = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
 
 const api = axios.create({
   baseURL: API_BASE_URL,
+  // Send the httpOnly auth cookie with every request (auto on same-origin; this
+  // also covers cross-origin dev). Auth is now cookie-based — the JWT is never
+  // stored in JS, so an XSS can't read it.
+  withCredentials: true,
 });
 
-// 2. Single Request Interceptor: Handles Token + Trailing Slashes
+// 2. Single Request Interceptor: trailing slashes only (auth rides the cookie).
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-
   // Prevent 307 Redirects for iOS by ensuring POST URLs always end with a slash.
   if (config.method?.toLowerCase() === 'post' && config.url) {
     const [path, query] = config.url.split('?');
@@ -29,13 +28,12 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// 3. Single Response Interceptor: Handles Token Expiration (Auto-Logout)
+// 3. Single Response Interceptor: Handles Session Expiration (Auto-Logout)
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
       console.warn("Session expired. Redirecting to login...");
-      localStorage.removeItem('token');
       // Only redirect if we aren't already on the login page
       if (!window.location.pathname.includes('/login')) {
         window.location.href = '/login';
@@ -108,6 +106,7 @@ export const authService = {
     return api.post('/auth/register/', data);
   },
   getMe: () => api.get('/me'), // Matches the @app.get("/me") in main.py
+  logout: () => api.post('/auth/logout'), // Clears the httpOnly auth cookie
 };
 
 // 8. Autonomous Response Endpoints (Phase 2 — see docs/CONTRACTS.md §5)

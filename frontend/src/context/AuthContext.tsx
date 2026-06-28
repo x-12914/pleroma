@@ -51,35 +51,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // Load session on mount
   // -----------------------------
   useEffect(() => {
+    // Auth lives in an httpOnly cookie now (not JS-readable). Ask the server who
+    // we are — if the cookie is valid, /me returns the user; otherwise we're anon.
     const initAuth = async () => {
-      const token = localStorage.getItem('token');
-      const storedUser = localStorage.getItem('user');
-
-      if (token && storedUser) {
-        try {
-          const parsedUser = JSON.parse(storedUser);
-          setUser(parsedUser);
-          setIsAuthenticated(true);
-        } catch {
-          // ignore malformed stored state
-        }
+      try {
+        const res = await authService.getMe();
+        setUser(res.data);
+        setIsAuthenticated(true);
+      } catch {
+        setUser(null);
+        setIsAuthenticated(false);
+      } finally {
+        setLoading(false);
       }
-
-      if (token) {
-        try {
-          const res = await authService.getMe();
-          setUser(res.data);
-          setIsAuthenticated(true);
-        } catch (error) {
-          console.error('Session expired or invalid', error);
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          setUser(null);
-          setIsAuthenticated(false);
-        }
-      }
-
-      setLoading(false);
     };
 
     initAuth();
@@ -92,23 +76,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     setLoading(true);
 
     try {
-      const { data } = await authService.login(email.trim(), password);
-      localStorage.setItem('token', data.access_token);
-      // /auth/login returns only the token, so fetch /me to get the full
-      // user record (id, email, is_admin). Without this the admin role
-      // never propagates until a page refresh.
+      // Login sets the httpOnly auth cookie server-side; we don't touch the token.
+      await authService.login(email.trim(), password);
+      // Fetch the full user record (id, email, role) so the UI has it immediately.
       const me = await authService.getMe();
       setUser(me.data);
-      localStorage.setItem('user', JSON.stringify(me.data));
       setIsAuthenticated(true);
     } catch (error: any) {
       setIsAuthenticated(false);
       setUser(null);
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-
       console.error("Login error:", error?.response?.data || error.message);
-
       throw error;
     } finally {
       setLoading(false);
@@ -119,11 +96,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // LOGOUT
   // -----------------------------
   const logout = () => {
+    // Fire-and-forget: tell the server to clear the httpOnly cookie.
+    authService.logout().catch(() => { /* ignore */ });
     setUser(null);
     setIsAuthenticated(false);
-
-    localStorage.removeItem("user");
-    localStorage.removeItem("token");
   };
 
   // -----------------------------
