@@ -7,7 +7,28 @@ app.db.database.init_db(); safe to run on every boot.
 """
 from __future__ import annotations
 
+import socket
+
 from app.core.config import settings
+
+
+def _detect_own_ipv4s() -> list[str]:
+    """Best-effort list of the box's own IPv4 addresses, so it never blocks its
+    own traffic. Uses a routing lookup (no packets sent) + hostname resolution."""
+    ips: set[str] = set()
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))  # no data sent — just resolves the outbound iface
+        ips.add(s.getsockname()[0])
+        s.close()
+    except Exception:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ips.add(info[4][0])
+    except Exception:
+        pass
+    return sorted(ip for ip in ips if ip and not ip.startswith("127."))
 
 # Loopback is also covered by guards._NEVER_BLOCK, but seeding it makes the
 # allowlist self-documenting in the UI.
@@ -61,6 +82,9 @@ def bootstrap_response(db) -> None:
         cidr = cidr.strip()
         if cidr:
             seeds.append((cidr, "operator admin CIDR (RESPONSE_ADMIN_ALLOWLIST)"))
+    if settings.RESPONSE_AUTOALLOWLIST_OWN_IP:
+        for ip in _detect_own_ipv4s():
+            seeds.append((f"{ip}/32", "auto-detected: box's own IP (never block self)"))
     changed = False
     for cidr, reason in seeds:
         if cidr not in existing:

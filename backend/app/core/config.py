@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     # Comma-separated CIDRs that must never be acted on (seeded into the allowlist
     # at startup, alongside loopback). Set to the operator's admin/SSH source range.
     RESPONSE_ADMIN_ALLOWLIST: str = ""
+    # Auto-detect the box's own interface IPs at startup and allowlist them, so a
+    # fresh install can never block its own traffic (self-lockout guard).
+    RESPONSE_AUTOALLOWLIST_OWN_IP: bool = True
 
     # Pydantic Config
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
