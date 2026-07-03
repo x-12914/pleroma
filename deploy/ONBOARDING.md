@@ -45,13 +45,13 @@ that differ per customer.
       traffic). Auto-benign sampling fills `training_samples`; temporarily raise
       `BENIGN_SAMPLE_RATE` if their volume is low.
 
-## 3. Calibrate the model to THEIR network
-- [ ] (Optional, higher quality) capture labeled attacks against their box from a
-      controlled host via the [lab harness](../lab/README.md) → base CSVs.
-- [ ] Retrain: `python -m app.services.network.retrain` (safe gate + atomic deploy),
-      then `systemctl restart pleroma-backend`.
-- [ ] Tune the anomaly threshold with `anomaly_report.py`; set
-      `NETWORK_ANOMALY_THRESHOLD` so their normal traffic isn't over-flagged.
+## 3. Calibrate the model to THEIR network  → automated by `onboard.sh`
+- [ ] Run `bash deploy/onboard.sh --learn-minutes 120` (as `opt`). It pre-flights,
+      runs the benign-learning window, retrains to their baseline, and prints the
+      anomaly-threshold report — leaving the system in dry_run. Add `--set-threshold`
+      to auto-apply the suggested `NETWORK_ANOMALY_THRESHOLD`.
+- [ ] (Optional, higher quality) before the retrain, capture labeled attacks against
+      their box from a controlled host via the [lab harness](../lab/README.md) → base CSVs.
 - [ ] Verify the `Anomaly-novel`/Suspicious rate on their dashboard is sane.
 
 ## 4. Seed safety rails (BEFORE any enforcement)
@@ -92,7 +92,8 @@ that differ per customer.
 
 ## Still-manual gaps to automate next (productization backlog)
 - One-shot **installer script** (steps 1–2) instead of hand-running DEPLOY.md.
-- **Calibration automation** (`onboard.sh`): drive the benign window + retrain +
-  threshold-tune + report, so step 3 isn't manual.
-- **Own-IP auto-detect** for the allowlist seed (don't rely on hand-entry).
+- ✅ **Calibration automation** — `deploy/onboard.sh` (benign window + retrain +
+  threshold report; leaves dry_run).
+- ✅ **Own-IP auto-detect** for the allowlist seed (bootstrap now auto-allowlists
+  the box's own IPs; `RESPONSE_AUTOALLOWLIST_OWN_IP`).
 - Central **control plane** for licensing + multi-customer monitoring + updates.
